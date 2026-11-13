@@ -5,6 +5,8 @@ import (
 	"net/http"
 )
 
+func (s *Session) Close() { s.client.CloseIdleConnections() }
+
 // SetTLSConfig applies caller-selected trust before authentication starts.
 func (s *Session) SetTLSConfig(config *tls.Config) {
 	transport := s.client.Transport.(*http.Transport)

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/hex"
@@ -16,10 +17,11 @@ import (
 )
 
 type PasswordLogin struct {
-	Username      string
-	Password      string
-	Domain        string
-	GraphCodeFile string
+	PasswordProvider func(context.Context) (string, error)
+	Username         string
+	Password         string
+	Domain           string
+	GraphCodeFile    string
 }
 
 func (m PasswordLogin) AuthType() string {
@@ -31,6 +33,13 @@ func (m PasswordLogin) LoginDomain() string {
 }
 
 func (m PasswordLogin) login(s *Session, _ AuthInfo) error {
+	if m.PasswordProvider != nil {
+		password, err := m.PasswordProvider(s.ctx)
+		if err != nil {
+			return err
+		}
+		m.Password = password
+	}
 	return s.loginAuthPsw(m.Username, m.Password, m.Domain, m.GraphCodeFile)
 }
 

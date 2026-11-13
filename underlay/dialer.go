@@ -4,15 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/netip"
+
 	"strconv"
 	"sync"
 	"time"
 
-	tun "github.com/mythologyli/sing-tun"
 	"github.com/mythologyli/zju-connect/internal/platformdialer"
 	"github.com/mythologyli/zju-connect/log"
-	"github.com/sagernet/sing/common/logger"
 )
 
 // Dialer creates connections on the interface that was used to reach the VPN
@@ -291,29 +289,7 @@ func (d *Dialer) refreshInterface() string {
 
 var findDefaultInterface = detectDefaultInterface
 
-func detectDefaultInterface() string {
-	networkMonitor, err := tun.NewNetworkUpdateMonitor(logger.NOP())
-	if err != nil {
-		return ""
-	}
-	if err := networkMonitor.Start(); err != nil {
-		_ = networkMonitor.Close()
-		return ""
-	}
-	defer networkMonitor.Close()
-
-	interfaceMonitor, err := tun.NewDefaultInterfaceMonitor(networkMonitor, logger.NOP(), tun.DefaultInterfaceMonitorOptions{OverrideAndroidVPN: true})
-	if err != nil {
-		return ""
-	}
-	if err := interfaceMonitor.Start(); err != nil {
-		_ = interfaceMonitor.Close()
-		return ""
-	}
-	defer interfaceMonitor.Close()
-
-	return interfaceMonitor.DefaultInterfaceName(netip.IPv4Unspecified())
-}
+func detectDefaultInterface() string { return "" }
 
 func usableInterface(interfaceName string, excludedIPs []net.IP) bool {
 	if interfaceName == "" {

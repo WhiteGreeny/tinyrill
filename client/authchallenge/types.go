@@ -83,6 +83,15 @@ type Handler interface {
 	HandleExternalLogin(ExternalLoginChallenge) (ExternalLoginResponse, error)
 }
 
+// CheckInteraction lets the frontend reject invisible interaction before a
+// protocol request sends an SMS or performs another challenge side effect.
+func CheckInteraction(h Handler, kind string) error {
+	if guard, ok := h.(interface{ RequireInteraction(string) error }); ok {
+		return guard.RequireInteraction(kind)
+	}
+	return nil
+}
+
 type HandlerFuncs struct {
 	Code          func(CodeChallenge) (CodeResponse, error)
 	TextCaptcha   func(TextCaptchaChallenge) (TextCaptchaResponse, error)

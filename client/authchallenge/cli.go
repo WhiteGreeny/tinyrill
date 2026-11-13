@@ -36,6 +36,16 @@ type CLIHandler struct {
 	input   *bufio.Reader
 }
 
+func (h *CLIHandler) RequireInteraction(kind string) error {
+	if h.options.Never || (h.input == nil && !terminal.Available()) {
+		if h.options.OnWaiting != nil {
+			h.options.OnWaiting(kind)
+		}
+		return terminal.ErrInteractionRequired
+	}
+	return nil
+}
+
 func NewCLIHandler(options CLIOptions) *CLIHandler {
 	if options.Output == nil {
 		options.Output = os.Stderr

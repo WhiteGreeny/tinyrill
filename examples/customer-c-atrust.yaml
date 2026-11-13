@@ -1,0 +1,16 @@
+schema_version: 1
+id: customer-c-atrust
+protocol: atrust
+server: "vpn.customer-c.example:443"
+auth:
+  method: password
+  username: "replace-me"
+  domain: "" # Use auth-info to discover the customer login domain.
+  remember_password: false
+listen:
+  socks5: "127.0.0.1:41080"
+  http: "127.0.0.1:41081"
+session:
+  state_dir: "../state/customer-c-atrust"
+tls:
+  mode: verify

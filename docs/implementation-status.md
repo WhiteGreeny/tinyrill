@@ -10,7 +10,12 @@
 
 - 已固定实施方案，首版容器为同一 Linux 二进制的轻量封装；宿主凭据联动延后。
 - 已完成：业务拨号与 DNS 禁止直连回退，移除业务直连实现、HTTP 环境代理和 SOCKS5 UDP/BIND；`go test -count=1 -timeout=120s ./dial ./resolve ./service` 通过。
-- 待完成：严格 YAML/CLI、功能裁剪、生命周期/状态隔离、TLS/日志/输入保护、认证/凭据、部署/CI、综合验收。
+- 已完成：Windows 原生 ACL 与原子秘密文件；严格、版本化 YAML；默认 TLS 身份校验及显式 EC 旧 TLS 例外；有界隧道恢复、可关闭的 gVisor；状态目录独占锁和会话身份绑定。
+- 已完成：带客户/代次/挑战 ID 的可取消认证接口；终端隐藏输入、ANSI/iTerm 图片、离线点选 JSON、受令牌/来源/期限约束的点选页面；后台短信发送前检查。
+- 已完成：Windows Credential Manager、Linux Secret Service、macOS 原生 Keychain 适配与 age 后端。Windows 系统库的增读改删实际通过并清理测试记录；Linux 后端交叉编译通过。age 错误口令、密文截断、工作因子上限、身份改变和保存失败测试通过。
+- 已接入：YAML CLI、独立实例运行、按需获取密码、认证成功后保存、关闭记住密码不读取后端、仅凭已有会话恢复；删除系统 TUN、Shadowsocks、通用转发、公共 DNS 监听、校园默认规则与旧 TOML/环境参数入口。
+- 当前 Windows 全量 `go test -count=1 -timeout=120s ./...` 通过。三个模拟代理实例关闭隔离、HTTP CONNECT/未完成 SOCKS 握手关闭和启动冲突测试通过。
+- 待完成：日志敏感内容与网关输入全面收口、CLI/恢复补充验收、轻量镜像与部署文档、固定 CI/发布材料、漏洞扫描及外部环境验收。
 
 ## 外部验收
 

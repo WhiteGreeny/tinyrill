@@ -61,6 +61,9 @@ func (s *Session) loginAuthSmsCheckCode(phone, loginDomain, graphCodeFile string
 }
 
 func (s *Session) sendSms(phone, loginDomain, graphCheckCode string) (int, error) {
+	if err := authchallenge.CheckInteraction(s.challengeHandler, "sms"); err != nil {
+		return 0, err
+	}
 	log.Println("Perform POST /passport/v1/public/sendSms")
 
 	data := map[string]interface{}{

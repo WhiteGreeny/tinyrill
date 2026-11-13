@@ -11,7 +11,7 @@ import (
 var debug atomic.Bool
 
 func Init() {
-	log.SetOutput(os.Stdout)
+	log.SetOutput(os.Stderr)
 }
 
 func EnableDebug() {
@@ -83,5 +83,5 @@ func DebugDumpHex(buf []byte) {
 }
 
 func NewLogger(prefix string) *log.Logger {
-	return log.New(os.Stdout, prefix, log.LstdFlags)
+	return log.New(os.Stderr, prefix, log.LstdFlags)
 }

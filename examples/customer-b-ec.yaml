@@ -1,0 +1,17 @@
+schema_version: 1
+id: customer-b-ec
+protocol: easyconnect
+server: "vpn.customer-b.example:443"
+auth:
+  method: password
+  username: "replace-me"
+  remember_password: false
+listen:
+  socks5: "127.0.0.1:31080"
+  http: "127.0.0.1:31081"
+session:
+  state_dir: "../state/customer-b-ec"
+tls:
+  mode: verify
+easyconnect:
+  allow_legacy_tls: false

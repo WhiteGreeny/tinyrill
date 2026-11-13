@@ -485,6 +485,9 @@ func parsePhoneNumbers(raw json.RawMessage) ([]string, error) {
 }
 
 func (s *Session) authSms(step authStep) error {
+	if err := authchallenge.CheckInteraction(s.challengeHandler, "sms"); err != nil {
+		return err
+	}
 	log.Println("Perform GET /passport/v1/auth/sms")
 	u := s.baseURL + "/passport/v1/auth/sms"
 	params := WithSharedParams(url.Values{

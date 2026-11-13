@@ -10,6 +10,7 @@ import (
 )
 
 var ErrResourceNotFound = errors.New("resource not found")
+var ErrAuthenticationRejected = errors.New("authentication was rejected by the gateway")
 
 type DialContextFunc func(context.Context, string, string) (net.Conn, error)
 

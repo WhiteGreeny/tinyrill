@@ -111,6 +111,12 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 	csrfMatch := regexp.MustCompile(`<CSRF_RAND_CODE>(.*)</CSRF_RAND_CODE>`).FindSubmatch(buf.Bytes())
 	csrfCode := ""
 	password := c.password
+	if c.passwordProvider != nil {
+		password, err = c.passwordProvider(c.lifecycleCtx)
+		if err != nil {
+			return err
+		}
+	}
 	if csrfMatch != nil {
 		csrfCode = string(csrfMatch[1])
 		log.Printf("CSRF Code: %s", csrfCode)
@@ -245,6 +251,9 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 }
 
 func (c *Client) loginSMS() error {
+	if err := authchallenge.CheckInteraction(c.challengeHandler, "sms"); err != nil {
+		return err
+	}
 	addr := "https://" + c.server + "/por/login_sms.csp?apiversion=1"
 	log.Printf("SMS request: %s", addr)
 	req, err := http.NewRequestWithContext(c.lifecycleCtx, http.MethodPost, addr, nil)

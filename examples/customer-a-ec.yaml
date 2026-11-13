@@ -1,0 +1,20 @@
+schema_version: 1
+id: customer-a-ec
+protocol: easyconnect
+server: "vpn.customer-a.example:443"
+auth:
+  method: password
+  username: "replace-me"
+  remember_password: false
+listen:
+  socks5: "127.0.0.1:21080"
+  http: "127.0.0.1:21081"
+session:
+  state_dir: "../state/customer-a-ec"
+tls:
+  mode: verify
+  # ca_file: "./customer-ca.pem"
+easyconnect:
+  # The inherited EC TCPP/L3 tunnel requires this legacy protocol exception.
+  # Enable only for a customer where its TLS 1.1/RC4 use is acceptable.
+  allow_legacy_tls: false

@@ -1,9 +1,6 @@
 package service
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -13,7 +10,7 @@ import (
 
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/dial"
-	"github.com/mythologyli/zju-connect/internal/hook_func"
+
 	"github.com/mythologyli/zju-connect/log"
 )
 
@@ -243,32 +240,5 @@ func removeHopHeaders(header http.Header) {
 	}
 	for _, name := range []string{"Connection", "Proxy-Connection", "Keep-Alive", "Proxy-Authenticate", "TE", "Trailer", "Transfer-Encoding", "Upgrade"} {
 		header.Del(name)
-	}
-}
-
-func ServeHTTP(bindAddr string, dialer *dial.Dialer) {
-	proxy := newHTTPProxy(dialer)
-
-	log.Printf("HTTP server listening on %s", bindAddr)
-
-	server := newHTTPServer(bindAddr, proxy)
-
-	hook_func.RegisterTerminalFunc("CloseHTTPListener", func(ctx context.Context) error {
-		log.Println("Closing HTTP listener...")
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		defer proxy.close()
-		if err := server.Shutdown(ctx); err != nil {
-			return fmt.Errorf("close HTTP listener failed: %w", err)
-		}
-		return nil
-	})
-
-	if err := server.ListenAndServe(); err != nil {
-		if errors.Is(err, http.ErrServerClosed) {
-			log.Println("HTTP server closed")
-		} else {
-			log.Println("HTTP listen failed: " + err.Error())
-		}
 	}
 }

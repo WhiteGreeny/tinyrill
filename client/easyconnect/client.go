@@ -25,11 +25,12 @@ const (
 )
 
 type AuthOptions struct {
-	Username      string
-	Password      string
-	TOTPSecret    string
-	Certificate   tls.Certificate
-	GraphCodeFile string
+	PasswordProvider func(context.Context) (string, error)
+	Username         string
+	Password         string
+	TOTPSecret       string
+	Certificate      tls.Certificate
+	GraphCodeFile    string
 }
 
 type ResourceOptions struct {
@@ -51,6 +52,7 @@ type Options struct {
 }
 
 type Client struct {
+	passwordProvider  func(context.Context) (string, error)
 	tlsPolicy         *tlspolicy.Policy
 	allowLegacyTLS    bool
 	server            string // Example: rvpn.zju.edu.cn:443. No protocol prefix
@@ -101,6 +103,7 @@ func NewClient(options Options) *Client {
 		challengeHandler = authchallenge.UnsupportedHandler{}
 	}
 	c := &Client{
+		passwordProvider:  options.Auth.PasswordProvider,
 		tlsPolicy:         options.TLSPolicy,
 		allowLegacyTLS:    options.AllowLegacyTLS,
 		server:            options.Server,
@@ -298,6 +301,9 @@ func (c *Client) SetupContext(ctx context.Context) error {
 
 	return nil
 }
+
+// SessionSnapshot is private persisted state; never include it in status/logs.
+func (c *Client) SessionSnapshot() (server, sessionID string) { return c.server, c.twfID }
 
 func (c *Client) ensureSession() error {
 	if c.twfID != "" {

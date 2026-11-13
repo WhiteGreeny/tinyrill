@@ -1,449 +1,276 @@
-//go:build !tun
-
 package main
 
 import (
 	"context"
-	"crypto"
 	"crypto/tls"
-	"net"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"runtime"
-	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/containers/winquit/pkg/winquit"
-	"github.com/mythologyli/zju-connect/client"
-	atrustclient "github.com/mythologyli/zju-connect/client/atrust"
 	"github.com/mythologyli/zju-connect/client/atrust/auth"
-	easyconnectclient "github.com/mythologyli/zju-connect/client/easyconnect"
 	"github.com/mythologyli/zju-connect/configs"
-	"github.com/mythologyli/zju-connect/dial"
-	"github.com/mythologyli/zju-connect/internal/hook_func"
-	"github.com/mythologyli/zju-connect/internal/keylog"
+	"github.com/mythologyli/zju-connect/internal/credentials"
+	"github.com/mythologyli/zju-connect/internal/instance"
+	"github.com/mythologyli/zju-connect/internal/securefile"
+	"github.com/mythologyli/zju-connect/internal/state"
+	"github.com/mythologyli/zju-connect/internal/terminal"
+	"github.com/mythologyli/zju-connect/internal/tlspolicy"
 	"github.com/mythologyli/zju-connect/log"
-	"github.com/mythologyli/zju-connect/resolve"
-	"github.com/mythologyli/zju-connect/service"
-	"github.com/mythologyli/zju-connect/stack"
-	"github.com/mythologyli/zju-connect/stack/gvisor"
-	"github.com/mythologyli/zju-connect/stack/tcptunnel"
-	"github.com/mythologyli/zju-connect/stack/tun"
 	"github.com/mythologyli/zju-connect/underlay"
 	"golang.org/x/crypto/pkcs12"
-	"inet.af/netaddr"
 )
 
-var conf configs.Config
+var Version = "dev"
+var Commit = "unknown"
 
 func main() {
-	if exitCode := initialize(os.Args[1:]); exitCode >= 0 {
-		os.Exit(exitCode)
-	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	os.Exit(runCLI(ctx, os.Args[1:], os.Stdout, os.Stderr))
+}
 
+const usage = `tinyrill — one customer VPN per process
+
+  tinyrill run --config customer.yaml
+  tinyrill auth-info --config customer.yaml
+  tinyrill config-check --config customer.yaml
+  tinyrill credentials status|set|delete --config customer.yaml
+  tinyrill session clear --config customer.yaml
+  tinyrill version
+
+Secrets are read from the terminal, an explicit secret file, or the selected
+credential store. TOML, password flags and environment overrides are not accepted.
+Exit codes: 0 stopped/success; 2 config/listener; 3 interaction required;
+4 authentication rejected; 5 connection; 6 state/credential storage.
+`
+
+func runCLI(ctx context.Context, args []string, out, diagnostic io.Writer) int {
 	log.Init()
-
-	log.Println("Start ZJU Connect " + zjuConnectVersionString())
-	if conf.DebugDump {
+	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+		fmt.Fprint(out, usage)
+		return 0
+	}
+	command := args[0]
+	args = args[1:]
+	if command == "version" && len(args) == 0 {
+		fmt.Fprintf(out, "tinyrill %s (%s) %s/%s %s\n", Version, Commit, runtime.GOOS, runtime.GOARCH, runtime.Version())
+		return 0
+	}
+	action := ""
+	if command == "credentials" || command == "session" {
+		if len(args) == 0 {
+			return cliError(diagnostic, 2, errors.New("subcommand is required"))
+		}
+		action = args[0]
+		args = args[1:]
+	}
+	switch command {
+	case "run", "auth-info", "config-check":
+	case "credentials":
+		if action != "status" && action != "set" && action != "delete" {
+			return cliError(diagnostic, 2, errors.New("unknown credentials subcommand"))
+		}
+	case "session":
+		if action != "clear" {
+			return cliError(diagnostic, 2, errors.New("unknown session subcommand"))
+		}
+	default:
+		return cliError(diagnostic, 2, errors.New("unknown command; use tinyrill help"))
+	}
+	flags := flag.NewFlagSet(command, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	path := flags.String("config", "", "YAML configuration")
+	if flags.Parse(args) != nil || flags.NArg() != 0 || *path == "" {
+		return cliError(diagnostic, 2, errors.New("expected --config PATH; unknown arguments are not accepted"))
+	}
+	p, err := configs.LoadProfile(*path)
+	if err != nil {
+		return cliError(diagnostic, 2, err)
+	}
+	if p.Debug {
 		log.EnableDebug()
-	}
-	if errs := hook_func.ExecInitialFunc(context.Background(), conf); errs != nil {
-		for _, err := range errs {
-			log.Printf("Initial ZJU-Connect failed: %s", err)
-		}
-		os.Exit(1)
-	}
-	underlayDialer, underlayErr := underlay.New(underlay.Options{
-		InterfaceName:  conf.BindInterface,
-		AutoDetect:     conf.AutoDetectInterface,
-		DebugPCAPFile:  conf.DebugPCAPFile,
-		LocalDNSServer: conf.LocalDNSServer,
-	})
-	if underlayErr != nil {
-		log.Fatalf("Create underlay dialer: %v", underlayErr)
-	}
-	tlsKeyLogWriter, tlsKeyLogErr := keylog.Open(conf.DebugTLSLogFile)
-	if tlsKeyLogErr != nil {
-		_ = underlayDialer.Close()
-		log.Fatalf("Create TLS key log: %v", tlsKeyLogErr)
-	}
-	if conf.DebugPCAPFile != "" {
-		log.Printf("VPN underlay PCAP capture enabled: %s", conf.DebugPCAPFile)
-	}
-	if conf.DebugTLSLogFile != "" {
-		log.Printf("TLS key logging enabled: %s", conf.DebugTLSLogFile)
-	}
-	var vpnClient client.Client
-	switch conf.Protocol {
-	case "easyconnect":
-		tlsCert := tls.Certificate{}
-		if conf.CertFile != "" {
-			p12Data, err := os.ReadFile(conf.CertFile)
-			if err != nil {
-				log.Fatalf("Read certificate file error: %s", err)
-			}
-
-			key, cert, err := pkcs12.Decode(p12Data, conf.CertPassword)
-			if err != nil {
-				log.Fatalf("Decode certificate file error: %s", err)
-			}
-
-			tlsCert = tls.Certificate{
-				Certificate: [][]byte{cert.Raw},
-				PrivateKey:  key.(crypto.PrivateKey),
-				Leaf:        cert,
-			}
-		}
-
-		vpnClient = easyconnectclient.NewClient(easyconnectclient.Options{
-			Server: net.JoinHostPort(conf.ServerAddress, strconv.Itoa(conf.ServerPort)),
-			Auth: easyconnectclient.AuthOptions{
-				Username:      conf.Username,
-				Password:      conf.Password,
-				TOTPSecret:    conf.TOTPSecret,
-				Certificate:   tlsCert,
-				GraphCodeFile: conf.GraphCodeFile,
-			},
-			SessionID:     conf.TwfID,
-			TestMultiLine: !conf.DisableMultiLine,
-			Resources: easyconnectclient.ResourceOptions{
-				Fetch:          !conf.DisableServerConfig,
-				IncludeDomains: !conf.SkipDomainResource,
-			},
-			UnderlayDialer:  underlayDialer,
-			TLSKeyLogWriter: tlsKeyLogWriter,
-		})
-
-		log.Printf("VPN protocol: %s", conf.Protocol)
-		err := vpnClient.(*easyconnectclient.Client).Setup()
-		if err != nil {
-			vpnClient.(*easyconnectclient.Client).Close()
-			_ = underlayDialer.Close()
-			if tlsKeyLogWriter != nil {
-				_ = tlsKeyLogWriter.Close()
-			}
-			log.Fatalf("VPN client setup error: %s", err)
-		}
-		if vpnClient.CanUseTCPTunnel() {
-			conf.TCPTunnelMode = true
-		}
-	case "atrust":
-		var err error
-		var resourceData []byte
-
-		if conf.ResourceFile != "" {
-			resourceData, err = os.ReadFile(conf.ResourceFile)
-			if err != nil {
-				log.Fatalf("Read resource file error: %s", err)
-			}
-		}
-
-		var clientData []byte
-		if conf.ClientDataFile != "" {
-			clientData, err = os.ReadFile(conf.ClientDataFile)
-			if err != nil {
-				log.Printf("Read client data file error: %s", err)
-				log.Println("Will create a new client data file if log in successfully")
-			}
-			log.Printf("Client data will be saved to %s", conf.ClientDataFile)
-		}
-
-		var loginMethod auth.LoginMethod
-		if conf.SID == "" || conf.DeviceID == "" || resourceData == nil {
-			loginMethod, err = auth.NewLoginMethod(auth.LoginMethodOptions{
-				AuthType:      conf.AuthType,
-				Username:      conf.Username,
-				Password:      conf.Password,
-				Phone:         conf.Phone,
-				Domain:        conf.LoginDomain,
-				GraphCodeFile: conf.GraphCodeFile,
-				CASTicket:     conf.CasTicket,
-				OAuth2Code:    conf.OAuth2Code,
-			})
-			if err != nil {
-				log.Fatalf("Configure aTrust login: %v", err)
-			}
-		}
-
-		vpnClient = atrustclient.NewClient(atrustclient.ClientOptions{
-			Session: atrustclient.SessionOptions{
-				Username:     conf.Username,
-				SID:          conf.SID,
-				DeviceID:     conf.DeviceID,
-				MACAddresses: conf.MACAddresses,
-				SignKey:      conf.SignKey,
-			},
-			UnderlayDialer:  underlayDialer,
-			TLSKeyLogWriter: tlsKeyLogWriter,
-		})
-
-		var saveClientDataFunc func(data []byte) error
-		if conf.ClientDataFile != "" {
-			saveClientDataFunc = func(data []byte) error {
-				return os.WriteFile(conf.ClientDataFile, data, 0600)
-			}
-		}
-
-		log.Printf("VPN protocol: %s", conf.Protocol)
-		clientData, err = vpnClient.(*atrustclient.Client).Setup(atrustclient.SetupOptions{
-			ServerAddress:            conf.ServerAddress,
-			ServerPort:               conf.ServerPort,
-			LoginMethod:              loginMethod,
-			TOTPSecret:               conf.TOTPSecret,
-			ClientData:               clientData,
-			ResourceData:             resourceData,
-			BestNodesRefreshInterval: time.Duration(conf.UpdateBestNodesInterval) * time.Second,
-			SessionRefreshInterval:   time.Duration(conf.SessionRefreshInterval) * time.Second,
-			SaveClientData:           saveClientDataFunc,
-		})
-		if err != nil {
-			vpnClient.(*atrustclient.Client).Close()
-			_ = underlayDialer.Close()
-			if tlsKeyLogWriter != nil {
-				_ = tlsKeyLogWriter.Close()
-			}
-			log.Fatalf("VPN client setup error: %s", err)
-		}
-	}
-
-	log.Printf("VPN client started")
-	if closer, ok := vpnClient.(interface{ Close() }); ok {
-		hook_func.RegisterTerminalFunc("CloseVPNClient", func(ctx context.Context) error {
-			closer.Close()
-			return nil
-		})
-	}
-	hook_func.RegisterTerminalFunc("CloseUnderlayDialer", func(ctx context.Context) error {
-		return underlayDialer.Close()
-	})
-	if tlsKeyLogWriter != nil {
-		hook_func.RegisterTerminalFunc("CloseTLSKeyLog", func(ctx context.Context) error {
-			return tlsKeyLogWriter.Close()
-		})
-	}
-
-	ipResources, err := vpnClient.IPResources()
-	if err != nil && !conf.DisableServerConfig {
-		log.Println("No IP resources")
-	}
-
-	ipSet, err := vpnClient.IPSet()
-	if err != nil && !conf.DisableServerConfig {
-		log.Println("No IP set")
-	}
-
-	domainResources, err := vpnClient.DomainResources()
-	if err != nil && !conf.DisableServerConfig {
-		log.Println("No domain resources")
-	}
-
-	dnsResource, err := vpnClient.DNSResource()
-	if err != nil && !conf.DisableServerConfig {
-		log.Println("No DNS resource")
-	}
-
-	if conf.Protocol == "easyconnect" {
-		if !conf.DisableZJUConfig {
-			if domainResources == nil {
-				domainResources = make(client.DomainResources)
-			}
-
-			domainResources["zju.edu.cn"] = []client.DomainResource{{
-				PortMin:  1,
-				PortMax:  65535,
-				Protocol: "all",
-			}}
-
-			if ipResources == nil {
-				ipResources = []client.IPResource{}
-			}
-
-			ipResources = append([]client.IPResource{{
-				IPMin:    net.ParseIP("10.0.0.0"),
-				IPMax:    net.ParseIP("10.255.255.255"),
-				PortMin:  1,
-				PortMax:  65535,
-				Protocol: "all",
-			}}, ipResources...)
-
-			ipSetBuilder := netaddr.IPSetBuilder{}
-			if ipSet != nil {
-				ipSetBuilder.AddSet(ipSet)
-			}
-			ipSetBuilder.AddPrefix(netaddr.MustParseIPPrefix("10.0.0.0/8"))
-			ipSet, _ = ipSetBuilder.IPSet()
-		}
-
-		for _, customProxyDomain := range conf.CustomProxyDomain {
-			if domainResources != nil {
-				domainResources[customProxyDomain] = append(domainResources[customProxyDomain], client.DomainResource{
-					PortMin:  1,
-					PortMax:  65535,
-					Protocol: "all",
-				})
-			} else {
-				domainResources = client.DomainResources{
-					customProxyDomain: {{
-						PortMin:  1,
-						PortMax:  65535,
-						Protocol: "all",
-					}},
-				}
-			}
-		}
-	}
-
-	var vpnStack stack.Stack
-	if conf.TCPTunnelMode {
-		vpnStack, err = tcptunnel.NewStack(vpnClient)
-		if err != nil {
-			log.Fatalf("TCP Tunnel stack setup error: %s", err)
-		}
-	} else if conf.TUNMode {
-		vpnTUNStack, err := tun.NewStack(vpnClient, conf.DNSHijack, conf.FakeIP, ipResources)
-		if err != nil {
-			log.Fatalf("Tun stack setup error, make sure you are root user : %s", err)
-		}
-
-		if conf.AddRoute && ipSet != nil {
-			for _, prefix := range ipSet.Prefixes() {
-				log.Printf("Add route to %s", prefix.String())
-				_ = vpnTUNStack.AddRoute(prefix.String())
-			}
-		} else if !conf.AddRoute && !conf.DisableZJUConfig && conf.Protocol == "easyconnect" {
-			log.Println("Add route to 10.0.0.0/8")
-			_ = vpnTUNStack.AddRoute("10.0.0.0/8")
-		}
-
-		if conf.FakeIP {
-			_ = vpnTUNStack.AddRoute("198.18.0.0/16")
-		}
-
-		vpnStack = vpnTUNStack
 	} else {
-		vpnStack, err = gvisor.NewStack(vpnClient)
+		log.DisableDebug()
+	}
+	if _, err := tlspolicy.New(tlspolicy.Options{Mode: p.TLS.Mode, CAFile: p.TLS.CAFile, ServerName: p.TLS.ServerName, Pins: p.TLS.Pins}); err != nil {
+		return cliError(diagnostic, 2, err)
+	}
+	if command == "config-check" {
+		if err := p.ValidateForRun(); err != nil {
+			return cliError(diagnostic, 2, err)
+		}
+		_ = json.NewEncoder(out).Encode(map[string]any{"schema_version": 1, "customer": p.ID, "valid": true})
+		return 0
+	}
+	if command == "auth-info" {
+		return authInfo(ctx, p, out, diagnostic)
+	}
+	if command == "session" {
+		d, err := state.Acquire(p.Session.StateDir)
 		if err != nil {
-			log.Fatalf("gVisor stack setup error: %s", err)
+			return cliError(diagnostic, 6, err)
 		}
+		defer d.Close()
+		if err = d.ClearSession(); err != nil {
+			return cliError(diagnostic, 6, err)
+		}
+		fmt.Fprintln(out, `{"session":"cleared","remembered_password":"unchanged"}`)
+		return 0
 	}
+	if err := p.ValidateForRun(); err != nil {
+		return cliError(diagnostic, 2, err)
+	}
+	if command == "credentials" {
+		return credentialCommand(ctx, p, action, out, diagnostic)
+	}
+	if p.TLS.Mode == "insecure" {
+		fmt.Fprintln(diagnostic, "This profile explicitly disables VPN server identity verification.")
+	}
+	if p.EasyConnect.AllowLegacyTLS {
+		fmt.Fprintln(diagnostic, "This profile explicitly permits the EC TLS 1.1/RC4 tunnel.")
+	}
+	material, err := loadMaterial(ctx, p, diagnostic)
+	if err != nil {
+		return cliError(diagnostic, 2, err)
+	}
+	frontend := &instance.CLIFrontend{Profile: p, Output: out, Diagnostic: diagnostic}
+	defer frontend.Close()
+	err = instance.Run(ctx, p, material, frontend)
+	if err == nil || errors.Is(err, context.Canceled) {
+		return 0
+	}
+	var failure *instance.Failure
+	if errors.As(err, &failure) {
+		return cliError(diagnostic, failure.Code, err)
+	}
+	return cliError(diagnostic, 5, err)
+}
 
-	useRemoteDNS := !conf.DisableRemoteDNS
-	remoteDNSServer := conf.RemoteDNSServer
-	policyDNSServers, _ := vpnClient.DNSServers()
-	if useRemoteDNS && remoteDNSServer == "auto" {
-		remoteDNSServer, err = vpnClient.DNSServer()
+func cliError(output io.Writer, code int, err error) int {
+	fmt.Fprintln(output, terminal.SafeText(err.Error()))
+	return code
+}
+func promptFor(p configs.Profile, output io.Writer) credentials.Prompt {
+	return func(ctx context.Context, label string) (string, error) {
+		if p.Auth.Interactive == "never" {
+			return "", terminal.ErrInteractionRequired
+		}
+		timeout, _ := time.ParseDuration(p.Auth.Timeout)
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return terminal.ReadLine(ctx, output, label, true)
+	}
+}
+
+func credentialCommand(ctx context.Context, p configs.Profile, action string, out, diagnostic io.Writer) int {
+	if p.Auth.Method != "password" {
+		return cliError(diagnostic, 2, errors.New("credential commands require password authentication"))
+	}
+	d, err := state.Acquire(p.Session.StateDir)
+	if err != nil {
+		return cliError(diagnostic, 6, err)
+	}
+	defer d.Close()
+	prompt := promptFor(p, diagnostic)
+	store, err := credentials.New(p, prompt)
+	if err != nil {
+		return cliError(diagnostic, 6, err)
+	}
+	defer store.Close()
+	status := ""
+	switch action {
+	case "status":
+		status, err = store.Status(ctx)
+	case "set":
+		var password string
+		password, err = prompt(ctx, "New VPN password:")
+		if err == nil {
+			err = store.Set(ctx, password)
+		}
+		status = "saved"
+	case "delete":
+		err = store.Delete(ctx)
+		status = "deleted"
+	}
+	if err != nil {
+		if errors.Is(err, terminal.ErrInteractionRequired) {
+			return cliError(diagnostic, 3, err)
+		}
+		return cliError(diagnostic, 6, err)
+	}
+	_ = json.NewEncoder(out).Encode(map[string]string{"customer": p.ID, "credential": status})
+	return 0
+}
+
+func loadMaterial(ctx context.Context, p configs.Profile, diagnostic io.Writer) (instance.Material, error) {
+	var material instance.Material
+	var err error
+	if p.Auth.TOTPSecretFile != "" {
+		material.TOTP, err = instance.ReadSecret(p.Auth.TOTPSecretFile)
 		if err != nil {
-			useRemoteDNS = false
-			remoteDNSServer = ""
-			log.Println("No DNS server provided by server. Disable remote DNS")
+			return material, err
+		}
+	}
+	if p.Auth.CertificateFile != "" {
+		data, err := securefile.ReadLimited(p.Auth.CertificateFile, 4<<20)
+		if err != nil {
+			return material, err
+		}
+		defer clear(data)
+		var password string
+		if p.Auth.CertificatePasswordFile != "" {
+			password, err = instance.ReadSecret(p.Auth.CertificatePasswordFile)
 		} else {
-			log.Printf("Use DNS server %s provided by server", remoteDNSServer)
+			password, err = promptFor(p, diagnostic)(ctx, "Client certificate password (empty if none):")
 		}
-	}
-	secondaryDNSServer := conf.SecondaryDNSServer
-	if secondaryDNSServer == "auto" {
-		secondaryDNSServer = ""
-		if len(policyDNSServers) > 1 {
-			secondaryDNSServer = policyDNSServers[1]
-			log.Printf("Use secondary DNS server %s provided by server", secondaryDNSServer)
+		if err != nil {
+			return material, err
 		}
-	}
-
-	vpnResolver := resolve.NewResolver(
-		vpnStack,
-		remoteDNSServer,
-		secondaryDNSServer,
-		conf.DNSTTL,
-		domainResources,
-		dnsResource,
-		useRemoteDNS,
-	)
-	hook_func.RegisterTerminalFunc("CloseResolver", func(ctx context.Context) error {
-		vpnResolver.Close()
-		return nil
-	})
-
-	for _, customDns := range conf.CustomDNSList {
-		ipAddr := net.ParseIP(customDns.IP)
-		if ipAddr == nil {
-			log.Printf("Custom DNS for host name %s is invalid, SKIP", customDns.HostName)
+		key, cert, err := pkcs12.Decode(data, password)
+		if err != nil {
+			return material, errors.New("cannot decrypt client PKCS#12 certificate")
 		}
-		vpnResolver.SetPermanentDNS(customDns.HostName, ipAddr)
-		log.Printf("Add custom DNS: %s -> %s\n", customDns.HostName, customDns.IP)
+		material.Certificate = tls.Certificate{Certificate: [][]byte{cert.Raw}, PrivateKey: key, Leaf: cert}
 	}
-	localResolver := service.NewDnsServer(vpnResolver, []string{remoteDNSServer, conf.SecondaryDNSServer})
-	vpnStack.SetupResolve(localResolver)
-	vpnStack.SetupIPPool(vpnResolver.IPPool)
+	return material, nil
+}
 
-	go vpnStack.Run()
-
-	vpnDialer := dial.NewDialer(vpnStack, vpnResolver, ipResources)
-
-	if conf.DNSServerBind != "" {
-		go service.ServeDNS(conf.DNSServerBind, localResolver)
+func authInfo(ctx context.Context, p configs.Profile, out, diagnostic io.Writer) int {
+	if p.Protocol != "atrust" {
+		_ = json.NewEncoder(out).Encode(map[string]any{"protocol": "easyconnect", "implemented_primary_methods": []string{"password", "certificate"}, "gateway_discovery": false})
+		return 0
 	}
-	if conf.TUNMode {
-		clientIP, err := vpnClient.IP()
-		if err != nil || clientIP == nil {
-			log.Printf("Client IP unavailable, skip DNS binding: %v", err)
-		} else {
-			go service.ServeDNS(clientIP.String()+":53", localResolver)
-		}
+	timeout, _ := time.ParseDuration(p.Session.SetupTimeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	base, err := underlay.New(underlay.Options{AutoDetect: false})
+	if err != nil {
+		return cliError(diagnostic, 5, err)
 	}
-
-	if conf.SocksBind != "" {
-		go service.ServeSocks5(conf.SocksBind, vpnDialer, vpnResolver, conf.SocksUser, conf.SocksPasswd)
+	defer base.Close()
+	policy, err := tlspolicy.New(tlspolicy.Options{Mode: p.TLS.Mode, CAFile: p.TLS.CAFile, ServerName: p.TLS.ServerName, Pins: p.TLS.Pins})
+	if err != nil {
+		return cliError(diagnostic, 2, err)
 	}
-
-	if conf.HTTPBind != "" {
-		go service.ServeHTTP(conf.HTTPBind, vpnDialer)
+	session := auth.NewSessionContext(ctx, p.Server, nil, base.DialContext)
+	session.SetTLSConfig(policy.Standard())
+	defer session.Close()
+	info, err := session.GetAuthInfoList()
+	if err != nil {
+		return cliError(diagnostic, 5, err)
 	}
-
-	if conf.ShadowsocksURL != "" {
-		go service.ServeShadowsocks(vpnDialer, conf.ShadowsocksURL)
+	// Login links can contain transient tokens; auth-info lists only method metadata.
+	safe := make([]map[string]string, 0, len(info))
+	for _, i := range info {
+		safe = append(safe, map[string]string{"domain": i.LoginDomain, "auth_type": i.AuthType, "name": i.AuthName, "sub_type": i.SubType})
 	}
-
-	for _, portForwarding := range conf.PortForwardingList {
-		switch portForwarding.NetworkType {
-		case "tcp":
-			go service.ServeTCPForwarding(vpnDialer.Dial, portForwarding.BindAddress, portForwarding.RemoteAddress)
-		case "udp":
-			go service.ServeUDPForwarding(vpnStack, portForwarding.BindAddress, portForwarding.RemoteAddress)
-		default:
-			log.Printf("Port forwarding: unknown network type %s. Aborting", portForwarding.NetworkType)
-		}
-	}
-
-	if !conf.DisableKeepAlive {
-		if conf.KeepAliveURL == "" && !useRemoteDNS {
-			log.Println("Keep alive is disabled because remote DNS is disabled, and no KeepAliveURL is provided")
-		} else {
-			keepAliveCtx, keepAliveCancel := context.WithCancel(context.Background())
-			hook_func.RegisterTerminalFunc("CloseKeepAlive", func(ctx context.Context) error {
-				keepAliveCancel()
-				return nil
-			})
-			go service.KeepAlive(keepAliveCtx, vpnResolver, vpnDialer, conf.KeepAliveURL)
-		}
-	}
-
-	if runtime.GOOS == "windows" {
-		done := make(chan os.Signal, 1)
-		signal.Notify(done, syscall.SIGINT)
-		winquit.SimulateSigTermOnQuit(done)
-		<-done
-	} else {
-		quit := make(chan os.Signal, 1)
-		signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-		<-quit
-	}
-	log.Println("Shutdown ZJU-Connect ......")
-	if errs := hook_func.ExecTerminalFunc(context.Background()); errs != nil {
-		for _, err := range errs {
-			log.Printf("Shutdown ZJU-Connect failed: %s", err)
-		}
-	} else {
-		log.Println("Shutdown ZJU-Connect success, Bye~")
-	}
+	_ = json.NewEncoder(out).Encode(safe)
+	return 0
 }
