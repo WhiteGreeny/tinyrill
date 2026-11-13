@@ -72,6 +72,9 @@ try {
     ConvertTo-Json -InputObject @($licenseIndex) -Depth 4 | Set-Content -Encoding utf8NoBOM (Join-Path $licensesDir 'index.json')
     Copy-Item -LiteralPath LICENSE,README.md,THIRD_PARTY.md -Destination $target
     Copy-Item -LiteralPath examples,docs -Destination $target -Recurse
+    $acceptanceScripts = Join-Path $target 'scripts'
+    New-Item -ItemType Directory $acceptanceScripts | Out-Null
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'soak.ps1') -Destination $acceptanceScripts
     $sourceArchive = Join-Path $target 'source.tar.gz'
     git archive --format=tar.gz --prefix=tinyrill-source/ "--output=$sourceArchive" HEAD
     $provenance = [ordered]@{
