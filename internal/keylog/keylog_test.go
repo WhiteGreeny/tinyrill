@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mythologyli/zju-connect/internal/securefile"
 )
 
 func TestOpen(t *testing.T) {
@@ -30,12 +32,8 @@ func TestOpen(t *testing.T) {
 	if string(data) != line {
 		t.Fatalf("key log = %q, want %q", data, line)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("key-log permissions = %o, want 600", got)
+	if err := securefile.Check(path); err != nil {
+		t.Fatalf("key-log permissions: %v", err)
 	}
 }
 

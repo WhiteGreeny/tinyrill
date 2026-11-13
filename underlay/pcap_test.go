@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/mythologyli/zju-connect/internal/securefile"
 )
 
 func TestPCAPCaptureRecordsTCPInBothDirections(t *testing.T) {
@@ -68,12 +70,8 @@ func TestPCAPCaptureRecordsTCPInBothDirections(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("PCAP permissions = %o, want 600", got)
+	if err := securefile.Check(path); err != nil {
+		t.Fatalf("PCAP permissions: %v", err)
 	}
 	packets := parsePCAPPackets(t, data)
 	if len(packets) != 2 {

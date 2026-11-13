@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/mythologyli/zju-connect/internal/securefile"
 )
 
 const (
@@ -48,7 +50,7 @@ type pcapCapture struct {
 }
 
 func newPCAPCapture(path string) (*pcapCapture, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	file, err := securefile.Create(path)
 	if err != nil {
 		return nil, err
 	}
