@@ -50,7 +50,7 @@ func readConsole(ctx context.Context, input *os.File, output io.Writer, hidden b
 		}
 		switch one[0] {
 		case 3:
-			return "", context.Canceled
+			return "", ErrCanceled
 		case 4:
 			return "", io.EOF
 		case '\r', '\n':

@@ -141,7 +141,7 @@ func Run(ctx context.Context, p configs.Profile, material Material, ui Frontend)
 		}
 		err = connection.failureCause(err)
 		connection.close()
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || errors.Is(err, terminal.ErrCanceled) {
 			emit("stopping", "")
 			return nil
 		}

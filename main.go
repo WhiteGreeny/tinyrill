@@ -146,7 +146,7 @@ func runCLI(ctx context.Context, args []string, out, diagnostic io.Writer) int {
 	frontend := &instance.CLIFrontend{Profile: p, Output: out, Diagnostic: diagnostic}
 	defer frontend.Close()
 	err = instance.Run(ctx, p, material, frontend)
-	if err == nil || errors.Is(err, context.Canceled) {
+	if err == nil || ctx.Err() != nil || errors.Is(err, terminal.ErrCanceled) {
 		return 0
 	}
 	var failure *instance.Failure
@@ -157,6 +157,9 @@ func runCLI(ctx context.Context, args []string, out, diagnostic io.Writer) int {
 }
 
 func cliError(output io.Writer, code int, err error) int {
+	if errors.Is(err, terminal.ErrCanceled) {
+		return 0
+	}
 	fmt.Fprintln(output, terminal.SafeText(log.Redact(err.Error())))
 	return code
 }

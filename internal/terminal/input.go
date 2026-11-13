@@ -15,6 +15,7 @@ import (
 )
 
 var ErrInteractionRequired = errors.New("foreground terminal interaction is required")
+var ErrCanceled = errors.New("terminal input canceled by user")
 var inputMu sync.Mutex
 
 const MaxInput = 4096

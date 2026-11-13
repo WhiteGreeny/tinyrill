@@ -377,6 +377,8 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		authServerHost = fmt.Sprintf("%s:%d", options.ServerAddress, options.ServerPort)
 	}
 	sess := auth.NewSessionContext(setupCtx, authServerHost, c.tlsKeyLogWriter, c.underlayDialer.DialContext)
+	// Configure the transport before publishing the session to concurrent Close.
+	sess.SetTLSConfig(c.tlsPolicy.Standard())
 	c.maintenanceMu.Lock()
 	if err := c.lifecycleCtx.Err(); err != nil {
 		c.maintenanceMu.Unlock()
@@ -385,7 +387,6 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 	}
 	c.authSession = sess
 	c.maintenanceMu.Unlock()
-	sess.SetTLSConfig(c.tlsPolicy.Standard())
 	serverVersionInfo, manifestErr := sess.ServerVersionInfo()
 	serverVersionInfo, err := resolveServerVersionInfo(clientAuthData.ServerVersionInfo, serverVersionInfo, manifestErr)
 	if err != nil {
