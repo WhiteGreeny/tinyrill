@@ -49,7 +49,7 @@ SOCKS5 客户端应使用 `socks5h` 传递域名。仅支持 TCP CONNECT；没�
 
 ## 构建与验证
 
-本地当前验证工具链为 Go 1.27.2。Windows / Linux 使用普通 Go 构建；macOS 系统凭据后端需要启用 CGO 并链接系统 Security Framework，不通过携带密码的子进程命令调用 Keychain。
+构建工具链固定为 Go 1.27.4。Windows / Linux 使用普通 Go 构建；macOS 系统凭据后端需要启用 CGO 并链接系统 Security Framework，不通过携带密码的子进程命令调用 Keychain。
 
 ```sh
 go test -count=1 -timeout=120s ./...
@@ -59,6 +59,8 @@ go build -trimpath -o tinyrill .
 Windows 输出文件名使用 `tinyrill.exe`。系统凭据集成测试默认跳过；设置 `TINYRILL_TEST_NATIVE_CREDENTIALS=1` 后只创建、更新和清理随机命名的虚构测试条目。该开关不包含秘密。
 
 退出码：0 正常停止或成功；2 配置或监听冲突；3 需要人工认证；4 网关拒绝认证；5 连接失败；6 状态或凭据存储失败。进程管理器应对 3/4 停止自动重启，避免造成认证循环。
+
+配置详解见 [YAML 与认证](docs/configuration.md)；容器见 [rootless Podman](docs/docker.md)；多客户分流见 [mihomo 示例](docs/mihomo.md)。[构建与候选发布](docs/releasing.md) 会生成对应源码、SBOM、扫描报告和 SHA256；[验收表](docs/acceptance.md) 用于用户安排的实际客户测试与回退。
 
 ## 来源与许可证
 

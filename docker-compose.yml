@@ -1,14 +1,24 @@
-version: '3'
-
+# Rootless Podman Compose example. Use an independent copy per customer.
 services:
-  zju-connect:
-    build:
-      context: .
-    image: zju-connect
-    container_name: zju-connect
-    restart: unless-stopped
+  tinyrill:
+    image: localhost/tinyrill:candidate
+    user: "65532:65532"
+    userns_mode: "keep-id:uid=65532,gid=65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    stdin_open: true
+    tty: true
+    pids_limit: 128
     ports:
-      - 1080:1080
-      - 1081:1081
+      - "127.0.0.1:21080:1080"
+      - "127.0.0.1:21081:1081"
+      - "127.0.0.1:21999:10999"
     volumes:
-      - ./config.toml:/home/nonroot/config.toml
+      - "./local/customer-a-container.yaml:/run/tinyrill/customer.yaml:ro,Z"
+      - "customer-a-state:/state:U"
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777"
+volumes:
+  customer-a-state:

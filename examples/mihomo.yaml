@@ -1,0 +1,19 @@
+# Merge into an existing mihomo configuration; this is a proxy/group fragment.
+proxies:
+  - {name: customer-a, type: socks5, server: 127.0.0.1, port: 21080, udp: false}
+  - {name: customer-b, type: socks5, server: 127.0.0.1, port: 31080, udp: false}
+  - {name: customer-c, type: socks5, server: 127.0.0.1, port: 41080, udp: false}
+proxy-groups:
+  - name: customer-selected
+    type: select
+    proxies: [customer-a, customer-b, customer-c]
+rules:
+  # Example domains only: replace with gateway/auth endpoint names first.
+  - DOMAIN,vpn.customer-a.example,DIRECT
+  - DOMAIN,vpn.customer-b.example,DIRECT
+  - DOMAIN,vpn.customer-c.example,DIRECT
+  - DOMAIN-SUFFIX,apps.customer-a.example,customer-a
+  - DOMAIN-SUFFIX,apps.customer-b.example,customer-b
+  - DOMAIN-SUFFIX,apps.customer-c.example,customer-c
+  # Ambiguous addresses need explicit customer selection, with no DNS lookup.
+  - IP-CIDR,10.0.0.0/8,customer-selected,no-resolve

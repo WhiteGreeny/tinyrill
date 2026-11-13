@@ -1,0 +1,5 @@
+[
+  {"customer":"customer-a","proxy":"socks5h://127.0.0.1:21080","url":"https://business.customer-a.example/health","expected_status":200},
+  {"customer":"customer-b","proxy":"http://127.0.0.1:31081","url":"https://business.customer-b.example/health","expected_status":200},
+  {"customer":"customer-c","proxy":"socks5h://127.0.0.1:41080","url":"https://business.customer-c.example/health","expected_status":200}
+]

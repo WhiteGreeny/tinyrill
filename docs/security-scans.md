@@ -1,0 +1,17 @@
+# Security scan record
+
+工具链与依赖已固定，扫描结果按时间和目标记录，不承诺后续数据库更新后仍无新条目。
+
+首次 govulncheck v1.9.0 在 Go 1.27.2 下发现 4 个可达问题：GO-2026-6888（brotli）、GO-2026-6865（compress）、GO-2026-6859（net/http）、GO-2026-6809（x509）。已升级 Go 1.27.4、brotli v1.2.7、compress v1.20.2。
+
+复扫同时检查了未被程序调用的模块级问题，并升级 x/crypto v0.59.0、x/net v0.62.0、x/sys v0.50.0、x/term v0.48.0。保留 gVisor 和 uTLS 的协议适配边界，没有因扫描整体替换网络栈。
+
+第一次镜像扫描使用 Trivy 0.76.2，发现 Debian 12 基础镜像的 ca-certificates/tzdata 更新提示，以及旧 x/crypto/x/net 条目。基础镜像已更新到固定 digest 的 Distroless static-debian13 nonroot。2026-11-13 最终 Linux 源码 govulncheck 无漏洞；更新后镜像 Trivy 的系统组件和 Go 二进制均为 0 条。
+
+候选包的 `vulnerabilities-source.json` / `vulnerabilities-binary.json` 由固定版本 govulncheck 生成，分别检查目标平台源码和实际可执行文件。源码扫描可判断调用关系；二进制/镜像扫描的报告范围不同，应分别阅读，不能用一个结果覆盖其他结果。
+
+`trivy-image.json` 记录基础镜像系统组件和内嵌 Go 二进制的版本匹配。CI 保留全部严重性条目，并阻止有 HIGH/CRITICAL 条目的候选镜像通过。非高危或未分级条目仍需记录和评估，不因门槛未阻止而称为不存在。
+
+TLS 1.1/RC4 的 EC 数据通道和显式 insecure 配置是单客户兼容例外，不是扫描工具能够证明安全的模式。默认关闭，不能成为所有客户配置的模板。
+
+数据库与说明：[Go vulnerability management](https://go.dev/doc/security/vuln/)、[Trivy vulnerability scanning](https://trivy.dev/docs/v0.76/guide/scanner/vulnerability/)。

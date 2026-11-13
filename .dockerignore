@@ -1,0 +1,8 @@
+**
+!Dockerfile
+!LICENSE
+!dist/
+!dist/tinyrill-linux-amd64/
+!dist/tinyrill-linux-arm64/
+!dist/tinyrill-linux-amd64/tinyrill
+!dist/tinyrill-linux-arm64/tinyrill

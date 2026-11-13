@@ -12,15 +12,21 @@
 - 已完成：业务拨号与 DNS 禁止直连回退，移除业务直连实现、HTTP 环境代理和 SOCKS5 UDP/BIND；`go test -count=1 -timeout=120s ./dial ./resolve ./service` 通过。
 - 已完成：Windows 原生 ACL 与原子秘密文件；严格、版本化 YAML；默认 TLS 身份校验及显式 EC 旧 TLS 例外；有界隧道恢复、可关闭的 gVisor；状态目录独占锁和会话身份绑定。
 - 已完成：带客户/代次/挑战 ID 的可取消认证接口；终端隐藏输入、ANSI/iTerm 图片、离线点选 JSON、受令牌/来源/期限约束的点选页面；后台短信发送前检查。
-- 已完成：Windows Credential Manager、Linux Secret Service、macOS 原生 Keychain 适配与 age 后端。Windows 系统库的增读改删实际通过并清理测试记录；Linux 后端交叉编译通过。age 错误口令、密文截断、工作因子上限、身份改变和保存失败测试通过。
+- 已完成：Windows Credential Manager、Linux Secret Service、macOS 原生 Keychain 适配与 age 后端。Windows 和隔离 Linux Secret Service 的增读改删已实际通过并清理测试记录；macOS 适配待原生 CI/环境验证。age 错误口令、密文截断、工作因子上限、身份改变和保存失败测试通过。
 - 已接入：YAML CLI、独立实例运行、按需获取密码、认证成功后保存、关闭记住密码不读取后端、仅凭已有会话恢复；删除系统 TUN、Shadowsocks、通用转发、公共 DNS 监听、校园默认规则与旧 TOML/环境参数入口。
 - 当前 Windows 全量 `go test -count=1 -timeout=120s ./...` 通过。三个模拟代理实例关闭隔离、HTTP CONNECT/未完成 SOCKS 握手关闭和启动冲突测试通过。
 - 已完成：移除认证正文/数据包日志，统一控制字符与秘密字段保护；HTTP 响应、XML 深度/节点、RSA、资源数量和图片/坐标边界；认证重定向限制同源 HTTPS；畸形 XML/节点与地址池耗尽不再崩溃。新增解析 fuzz 入口。
 - 已完成：生产 aTrust 隧道故障上报实例并关闭旧代理连接，EC 连续保活失败上报；aTrust 心跳只有收到响应才重置失败计数，增加读写截止时间。修复内部取消被误判为用户正常退出及认证 HTTP 连接未关闭的问题。
 - Windows 全量测试已在上述修改后通过；Linux Secret Service 明确只允许本机 Unix D-Bus 传输。
-- 首次 govulncheck v1.9.0 扫描发现 Go 1.27.2 与两个压缩依赖存在可达漏洞，正在升级至修复版本并复扫。
-- 待完成：跨平台/恢复补充验收、轻量镜像与部署文档、固定 CI/发布材料、漏洞复扫及外部环境验收。
+- 已完成：Go 1.27.4、brotli v1.2.7、compress v1.20.2、x/crypto v0.59.0、x/net v0.62.0 等安全更新。govulncheck v1.9.0 最终 Linux 源码扫描无漏洞；已升级的 Debian 13 Distroless 镜像经 Trivy 0.76.2 扫描，系统和 Go 组件均为 0 条。详见 security-scans.md。
+- 已完成：Windows 全量回归；Ubuntu 26.04 WSL 全量 race 回归；实际 Linux PTY 隐藏输入、取消和模式恢复；EC/aTrust 资源解析各 20 秒 fuzz（约 12 万/27 万次执行，无崩溃）。race 检查发现并修复了 aTrust 认证 HTTP 传输初始化与 Close 的竞争。
+- 已完成：rootless Podman 5.7.0 的非 root、只读根、cap-drop=all 镜像启动、配置和私有状态写入；四个客户/容器配置均通过 config-check；验收探测脚本通过合成本机代理检查，无直连。
+- 已准备：同一 Linux 二进制的轻量镜像、原生/容器/服务/mihomo 文档、用户验收表与回退步骤、固定 SHA 和只读权限的 CI，以及包含源码/SBOM/扫描报告/校验和的候选打包脚本。实际产物生成和归档核验继续记录在交付结果中。
+
+## 本机验证环境
+
+Windows 11 amd64 与 Ubuntu 26.04 WSL。Go 工具链固定 1.27.4；WSL 为验证准备了 GCC、Podman 和隔离 Keyring 环境。Windows 全量测试完成后，Defender 在 2026-11-13 17:44 拦截了自动下载工具链目录中的 go.exe，后续构建/扫描转到 WSL；未修改 Defender 设置或添加排除。该环境问题与候选程序的测试结果分别记录，后续直接在 Windows 执行 go 命令需先处理官方工具链的安全软件拦截。
 
 ## 外部验收
 
-以下尚未验证，不能作为已支持能力发布：实际 EC 7.6.3、EC 7.6.7、aTrust 客户网关与业务；Linux/macOS 系统凭据库；rootless Podman；三个客户并行与 8 小时稳定性。继续完成可控测试，客户凭据不进入仓库或日志。
+用户已明确安排实际客户验收。以下尚未验证，不能作为已支持能力发布：实际 EC 7.6.3、EC 7.6.7、aTrust 客户网关与业务；macOS 原生 Keychain；三个真实客户并行与 8 小时稳定性。Linux Secret Service 和 rootless Podman 的可控运行已经验证，但不代替真实客户端到端测试。客户凭据不进入仓库或日志。

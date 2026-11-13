@@ -1,33 +1,17 @@
-# get modules, if they don't change the cache can be used for faster builds
-FROM golang:1.25 AS base
-ENV GO111MODULE=on
-ENV CGO_ENABLED=0
-ENV GOOS=linux
-ENV GOARCH=amd64
+# This image wraps the exact Linux artifact produced by scripts/release.ps1.
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:aafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931
+ARG TARGETARCH=amd64
 ARG VERSION=dev
-ARG COMMIT_ID
-# RUN go env -w GOPROXY=https://goproxy.cn,direct
-
-WORKDIR /src
-COPY go.* .
-RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
-
-# build th application
-FROM base AS build
-# temp mount all files instead of loading into image with COPY
-# temp mount module cache
-# temp mount go build cache
-RUN --mount=target=. \
-    --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    # go build -ldflags="-w -s" -o /app/main ./cmd/openwrt-wan-reconnect/*.go
-    go build -v -o /app/zju-connect -trimpath \
-    -ldflags "-s -w -buildid= -X main.zjuConnectVersion=${VERSION} -X main.CommitID=${COMMIT_ID}" .
-
-# Import the binary from build stage
-# use root container, but still use /home/nonroot to keep backward support
-FROM gcr.io/distroless/static as prd
-WORKDIR /home/nonroot
-COPY --from=build /app/zju-connect /home/nonroot
-ENTRYPOINT ["/home/nonroot/zju-connect" ,"-config", "/home/nonroot/config.toml"]
+ARG COMMIT=unknown
+LABEL org.opencontainers.image.title="tinyrill" \
+      org.opencontainers.image.source="https://github.com/WhiteGreeny/tinyrill" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}"
+COPY --chown=65532:65532 --chmod=0555 dist/tinyrill-linux-${TARGETARCH}/tinyrill /usr/local/bin/tinyrill
+COPY LICENSE /usr/share/doc/tinyrill/LICENSE
+USER 65532:65532
+WORKDIR /state
+EXPOSE 1080 1081
+ENTRYPOINT ["/usr/local/bin/tinyrill"]
+CMD ["run", "--config", "/run/tinyrill/customer.yaml"]

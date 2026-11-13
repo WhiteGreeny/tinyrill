@@ -1,0 +1,28 @@
+schema_version: 1
+id: customer-a
+protocol: easyconnect
+server: vpn.customer-a.example:443
+auth:
+  method: password
+  username: replace-me
+  remember_password: false
+  interactive: auto
+  # For externally managed background secrets, also set interactive: never:
+  # secret_file: /run/secrets/customer-password
+  captcha_file: /state/captcha.png
+  callback_listen: 0.0.0.0:10999
+  callback_url: http://127.0.0.1:21999
+listen:
+  socks5: 0.0.0.0:1080
+  http: 0.0.0.0:1081
+dns:
+  mode: vpn
+  servers: []
+session:
+  state_dir: /state/customer-a
+  reconnect_attempts: 3
+tls:
+  mode: verify
+easyconnect:
+  # Enable only for a gateway whose TLS 1.1/RC4 tunnel is accepted explicitly.
+  allow_legacy_tls: false
