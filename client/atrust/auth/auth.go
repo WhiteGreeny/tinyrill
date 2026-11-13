@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	mathrand "math/rand"
@@ -237,6 +238,9 @@ func (s *Session) withGraphCheckCode(process func(string) (int, error), graphCod
 			OutputPath: graphCodeFile,
 			Message:    "Please enter the graph check code JSON:",
 		})
+		if errors.Is(err, authchallenge.ErrRefreshCaptcha) {
+			continue
+		}
 		if err != nil {
 			return fmt.Errorf("complete aTrust captcha challenge: %w", err)
 		}
@@ -359,7 +363,7 @@ func (s *Session) Login(method LoginMethod, opts LoginOptions) (LoginResult, err
 	s.totpSecret = opts.TOTPSecret
 	s.challengeHandler = opts.ChallengeHandler
 	if s.challengeHandler == nil {
-		s.challengeHandler = authchallenge.NewCLIHandler(authchallenge.CLIOptions{})
+		s.challengeHandler = authchallenge.UnsupportedHandler{}
 	}
 	s.env = base64.StdEncoding.EncodeToString([]byte(`{"deviceId":"` + opts.DeviceID + `"}`))
 
@@ -382,7 +386,7 @@ func (s *Session) Login(method LoginMethod, opts LoginOptions) (LoginResult, err
 	}
 
 	if method == nil {
-		return LoginResult{}, fmt.Errorf("login method is nil, but user is not logged in")
+		return LoginResult{}, ErrSessionInvalid
 	}
 	var foundAuthInfo *AuthInfo
 	for _, authInfo := range authInfoList {

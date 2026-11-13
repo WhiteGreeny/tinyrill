@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -190,6 +191,9 @@ func validateNode(node *yaml.Node, schema reflect.Type, depth int, count *int) e
 		seen := map[string]bool{}
 		for i := 0; i < len(node.Content); i += 2 {
 			key, value := node.Content[i], node.Content[i+1]
+			if key.Anchor != "" || key.Style&yaml.TaggedStyle != 0 {
+				return invalid("YAML anchors and explicit tags are not supported")
+			}
 			field, known := fields[key.Value]
 			if key.Kind != yaml.ScalarNode || key.Tag != "!!str" || !known {
 				return fmt.Errorf("configuration line %d: unknown configuration field", key.Line)
@@ -301,6 +305,20 @@ func (p *Profile) Validate() error {
 	if err := validateListen(p.Auth.CallbackListen, true); err != nil {
 		return fmt.Errorf("auth.callback_listen: %w", err)
 	}
+	callbackHost, callbackPort, _ := net.SplitHostPort(p.Auth.CallbackListen)
+	if !net.ParseIP(callbackHost).IsLoopback() && (p.Auth.CallbackURL == "" || callbackPort == "0") {
+		return errors.New("non-loopback callback_listen requires a fixed port and callback_url for loopback host publishing")
+	}
+	if p.Auth.CallbackURL != "" {
+		u, err := url.Parse(p.Auth.CallbackURL)
+		if err != nil || u.Scheme != "http" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+			return errors.New("auth.callback_url must be an HTTP loopback origin")
+		}
+		ip := net.ParseIP(u.Hostname())
+		if ip == nil || !ip.IsLoopback() || validateListen(u.Host, false) != nil {
+			return errors.New("auth.callback_url requires a loopback IP and port")
+		}
+	}
 	if p.Credentials.Backend != "auto" && p.Credentials.Backend != "age-file" {
 		return errors.New("credentials.backend must be auto or age-file")
 	}
@@ -381,6 +399,19 @@ func NormalizeServer(server string) (string, error) {
 		host = ip.String()
 	} else {
 		host = strings.TrimSuffix(strings.ToLower(host), ".")
+		if len(host) > 253 {
+			return "", errors.New("server hostname is too long")
+		}
+		for _, label := range strings.Split(host, ".") {
+			if len(label) < 1 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+				return "", errors.New("invalid server hostname")
+			}
+			for _, r := range label {
+				if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+					return "", errors.New("server hostname must use ASCII DNS labels")
+				}
+			}
+		}
 	}
 	if host == "" {
 		return "", errors.New("server host is empty")

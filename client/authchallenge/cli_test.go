@@ -2,6 +2,8 @@ package authchallenge
 
 import (
 	"bytes"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +58,7 @@ func TestCLIHandlerTextCaptcha(t *testing.T) {
 		Output: &bytes.Buffer{},
 	})
 	response, err := handler.HandleTextCaptcha(TextCaptchaChallenge{
-		Image:      []byte("image"),
+		Image:      testImage(),
 		OutputPath: path,
 		Message:    "Captcha:",
 	})
@@ -70,7 +72,7 @@ func TestCLIHandlerTextCaptcha(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "image" {
+	if !bytes.Equal(data, testImage()) {
 		t.Fatalf("captcha image = %q", data)
 	}
 }
@@ -82,7 +84,7 @@ func TestCLIHandlerClickCaptchaJSON(t *testing.T) {
 		Output: &bytes.Buffer{},
 	})
 	response, err := handler.HandleClickCaptcha(ClickCaptchaChallenge{
-		Image:      []byte("image"),
+		Image:      testImage(),
 		OutputPath: path,
 		Message:    "Captcha JSON:",
 	})
@@ -92,6 +94,12 @@ func TestCLIHandlerClickCaptchaJSON(t *testing.T) {
 	if len(response.Points) != 2 || response.Points[0] != (Point{X: 11, Y: 22}) || response.Points[1] != (Point{X: 33, Y: 44}) || response.Width != 300 || response.Height != 150 {
 		t.Fatalf("unexpected response: %+v", response)
 	}
+}
+
+func testImage() []byte {
+	var b bytes.Buffer
+	_ = png.Encode(&b, image.NewRGBA(image.Rect(0, 0, 300, 150)))
+	return b.Bytes()
 }
 
 func TestParseClickCaptchaPointObjects(t *testing.T) {

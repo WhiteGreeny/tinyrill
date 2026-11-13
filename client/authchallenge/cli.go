@@ -2,144 +2,156 @@ package authchallenge
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/mythologyli/zju-connect/internal/securefile"
+	"github.com/mythologyli/zju-connect/internal/terminal"
 )
 
-const defaultCaptchaTimeout = 5 * time.Minute
-
 type CLIOptions struct {
-	Input          io.Reader
-	Output         io.Writer
-	CaptchaTimeout time.Duration
+	Context                     context.Context
+	Customer                    string
+	Generation                  uint64
+	Input                       io.Reader // Explicit reader for embedded frontends and tests.
+	Output                      io.Writer
+	CaptchaTimeout              time.Duration
+	Never                       bool
+	CaptchaMode, CaptchaFile    string
+	CallbackListen, CallbackURL string
+	OnWaiting                   func(string)
+	OnResumed                   func()
 }
 
 type CLIHandler struct {
-	input          *bufio.Reader
-	output         io.Writer
-	captchaTimeout time.Duration
-	mu             sync.Mutex
+	*SessionHandler
+	options CLIOptions
+	input   *bufio.Reader
 }
 
 func NewCLIHandler(options CLIOptions) *CLIHandler {
-	input := options.Input
-	if input == nil {
-		input = os.Stdin
+	if options.Output == nil {
+		options.Output = os.Stderr
 	}
-	output := options.Output
-	if output == nil {
-		output = os.Stdout
+	if options.CaptchaMode == "" {
+		options.CaptchaMode = "auto"
 	}
-	timeout := options.CaptchaTimeout
-	if timeout <= 0 {
-		timeout = defaultCaptchaTimeout
+	if options.CallbackListen == "" {
+		options.CallbackListen = "127.0.0.1:0"
 	}
-	return &CLIHandler{
-		input:          bufio.NewReader(input),
-		output:         output,
-		captchaTimeout: timeout,
+	h := &CLIHandler{options: options}
+	if options.Input != nil {
+		h.input = bufio.NewReaderSize(options.Input, terminal.MaxInput+1)
 	}
+	h.SessionHandler = NewSessionHandler(SessionOptions{Context: options.Context, Customer: options.Customer, Generation: options.Generation, Timeout: options.CaptchaTimeout, Responder: h, OnWaiting: options.OnWaiting, OnResumed: options.OnResumed})
+	return h
 }
 
-func (h *CLIHandler) HandleCodeChallenge(challenge CodeChallenge) (CodeResponse, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if challenge.CanSkipSecondaryAuth {
-		_, _ = fmt.Fprintln(h.output, "Tips: Add prefix '$' to skip secondary authentication")
+func (h *CLIHandler) Respond(ctx context.Context, c Challenge) (Response, error) {
+	r := Response{Meta: c.Meta}
+	if err := ctx.Err(); err != nil {
+		return r, err
 	}
-	input, err := h.readLine(challenge.Message)
-	if err != nil {
-		return CodeResponse{}, err
+	if h.options.Never || (h.input == nil && !terminal.Available()) {
+		return r, terminal.ErrInteractionRequired
 	}
-	response := CodeResponse{Code: strings.TrimSpace(input)}
-	if challenge.CanSkipSecondaryAuth {
-		if code, found := strings.CutPrefix(response.Code, "$"); found {
-			response.Code = strings.TrimSpace(code)
-			response.SkipSecondaryAuth = true
+	fmt.Fprintf(h.options.Output, "[%s / session %d / %s] %s\n", terminal.SafeText(c.Meta.Customer), c.Meta.Generation, c.Meta.ID, terminal.SafeText(c.Kind))
+	path := h.options.CaptchaFile
+	if path == "" {
+		path = c.OutputPath
+	}
+	if len(c.Image) > 0 {
+		if _, err := imageSize(c.Image); err != nil {
+			return r, err
+		}
+		if path != "" {
+			if err := securefile.Write(path, c.Image); err != nil {
+				return r, fmt.Errorf("write private captcha image: %w", err)
+			}
+			fmt.Fprintf(h.options.Output, "Original captcha: %s\n", terminal.SafeText(path))
 		}
 	}
-	if response.Code == "" {
-		return CodeResponse{}, fmt.Errorf("authentication code is empty")
+	switch c.Kind {
+	case "text-captcha":
+		if h.options.CaptchaMode != "file" {
+			if err := displayImage(h.options.Output, c.Image, h.options.CaptchaMode); err != nil {
+				return r, err
+			}
+		}
+	case "click-captcha":
+		if h.options.CaptchaMode != "file" && c.OutputPath == "" {
+			points, err := h.clickInBrowser(ctx, c)
+			r.Click = points
+			return r, err
+		}
+		if path == "" {
+			return r, errors.New("captcha_file is required for offline click input")
+		}
+		value, err := h.readLine(ctx, c.Message, false)
+		if err != nil {
+			return r, err
+		}
+		points, err := parseClickCaptchaResponse(value)
+		if err == nil {
+			err = validateImagePoints(c.Image, points)
+		}
+		r.Click = points
+		return r, err
+	case "cas", "oauth2":
+		link, err := url.Parse(c.URL)
+		if err != nil || link.Scheme != "https" || link.Host == "" || link.User != nil {
+			return r, errors.New("external login requires a valid HTTPS URL")
+		}
+		fmt.Fprintf(h.options.Output, "Open authentication link: %s\n", terminal.SafeText(c.URL))
 	}
-	return response, nil
-}
-
-func (h *CLIHandler) HandleTextCaptcha(challenge TextCaptchaChallenge) (TextCaptchaResponse, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if challenge.OutputPath == "" {
-		return TextCaptchaResponse{}, fmt.Errorf("text captcha output path is empty")
+	if c.CanSkipSecondaryAuth {
+		fmt.Fprintln(h.options.Output, "Add prefix '$' to request skipping secondary authentication")
 	}
-	if err := os.WriteFile(challenge.OutputPath, challenge.Image, 0644); err != nil {
-		return TextCaptchaResponse{}, fmt.Errorf("write captcha image: %w", err)
-	}
-	code, err := h.readLine(challenge.Message)
+	value, err := h.readLine(ctx, c.Message, true)
 	if err != nil {
-		return TextCaptchaResponse{}, err
+		return r, err
 	}
-	code = strings.TrimSpace(code)
-	if code == "" {
-		return TextCaptchaResponse{}, fmt.Errorf("captcha code is empty")
-	}
-	return TextCaptchaResponse{Code: code}, nil
-}
-
-func (h *CLIHandler) HandleClickCaptcha(challenge ClickCaptchaChallenge) (ClickCaptchaResponse, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if challenge.OutputPath == "" {
-		return serveCaptchaInBrowser(challenge.Image, h.captchaTimeout, h.output)
-	}
-	if err := os.WriteFile(challenge.OutputPath, challenge.Image, 0644); err != nil {
-		return ClickCaptchaResponse{}, fmt.Errorf("write captcha image: %w", err)
-	}
-	raw, err := h.readLine(challenge.Message)
-	if err != nil {
-		return ClickCaptchaResponse{}, err
-	}
-	return parseClickCaptchaResponse(raw)
-}
-
-func (h *CLIHandler) HandleExternalLogin(challenge ExternalLoginChallenge) (ExternalLoginResponse, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if challenge.LoginURL != "" {
-		_, _ = fmt.Fprintf(h.output, "Visit %s to login, and catch the callback url\n", challenge.LoginURL)
-	}
-	callback, err := h.readLine(challenge.Message)
-	if err != nil {
-		return ExternalLoginResponse{}, err
-	}
-	callback = strings.TrimSpace(callback)
-	if callback == "" {
-		return ExternalLoginResponse{}, fmt.Errorf("callback URL is empty")
-	}
-	return ExternalLoginResponse{CallbackURL: callback}, nil
-}
-
-func (h *CLIHandler) readLine(message string) (string, error) {
-	if message != "" {
-		_, _ = fmt.Fprint(h.output, message)
-		if !strings.HasSuffix(message, " ") {
-			_, _ = fmt.Fprint(h.output, " ")
+	r.Value = strings.TrimSpace(value)
+	if c.CanSkipSecondaryAuth {
+		if value, ok := strings.CutPrefix(r.Value, "$"); ok {
+			r.Value = strings.TrimSpace(value)
+			r.SkipSecondaryAuth = true
 		}
 	}
-	line, err := h.input.ReadString('\n')
+	if r.Value == "" {
+		return r, errors.New("authentication response is empty")
+	}
+	return r, nil
+}
+
+func (h *CLIHandler) readLine(ctx context.Context, prompt string, hidden bool) (string, error) {
+	if h.input == nil {
+		return terminal.ReadLine(ctx, h.options.Output, prompt, hidden)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	fmt.Fprint(h.options.Output, terminal.SafeText(prompt)+" ")
+	line, err := h.input.ReadSlice('\n')
+	if len(line) > terminal.MaxInput || errors.Is(err, bufio.ErrBufferFull) {
+		return "", errors.New("authentication input exceeds size limit")
+	}
 	if err != nil && !(err == io.EOF && len(line) > 0) {
 		return "", err
 	}
-	return strings.TrimRight(line, "\r\n"), nil
+	return strings.TrimRight(string(line), "\r\n"), nil
 }
-
 func parseClickCaptchaResponse(raw string) (ClickCaptchaResponse, error) {
+	if len(raw) > terminal.MaxInput {
+		return ClickCaptchaResponse{}, errors.New("captcha response exceeds size limit")
+	}
 	var object struct {
 		Coordinates [][]int `json:"coordinates"`
 		Width       int     `json:"width"`
@@ -179,8 +191,13 @@ func pointsFromCoordinates(coordinates [][]int) (ClickCaptchaResponse, error) {
 }
 
 func validatePoints(points []Point) (ClickCaptchaResponse, error) {
-	if len(points) == 0 {
+	if len(points) == 0 || len(points) > 16 {
 		return ClickCaptchaResponse{}, fmt.Errorf("click captcha response is empty")
+	}
+	for _, p := range points {
+		if p.X < 0 || p.Y < 0 || p.X >= 4096 || p.Y >= 4096 {
+			return ClickCaptchaResponse{}, errors.New("invalid click captcha coordinate")
+		}
 	}
 	return ClickCaptchaResponse{Points: points}, nil
 }

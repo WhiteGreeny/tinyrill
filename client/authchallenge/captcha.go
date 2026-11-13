@@ -2,383 +2,173 @@ package authchallenge
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"net"
 	"net/http"
-	"os/exec"
-	"runtime"
+	"net/url"
+	"strings"
+	"sync/atomic"
 	"time"
 )
 
-const captchaPageHTML = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>zju-connect 验证码</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #f0f2f5;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
-  }
-  .card {
-    background: #fff;
-    border-radius: 12px;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.1);
-    padding: 32px;
-    text-align: center;
-  }
-  h2 { color: #333; margin-bottom: 16px; font-size: 20px; }
-  .hint { color: #666; font-size: 14px; margin-bottom: 12px; }
-  .img-wrap {
-    position: relative;
-    display: inline-block;
-    cursor: crosshair;
-    user-select: none;
-    margin-bottom: 16px;
-  }
-  .img-wrap img {
-    display: block;
-    /* no width/height constraints: render at natural pixel size */
-  }
-  .marker {
-    position: absolute;
-    width: 28px; height: 28px;
-    border-radius: 50%;
-    background: rgba(24,144,255,0.85);
-    color: #fff;
-    font-size: 14px; font-weight: bold;
-    line-height: 28px; text-align: center;
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-  }
-  .actions { margin-bottom: 16px; }
-  .actions button {
-    padding: 6px 18px;
-    margin: 0 6px;
-    border: 1px solid #d9d9d9;
-    border-radius: 6px;
-    background: #fff;
-    color: #333;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .actions button:hover { border-color: #1890ff; color: #1890ff; }
-  #submitBtn {
-    width: 100%;
-    padding: 10px;
-    background: #1890ff;
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    font-size: 16px;
-    cursor: pointer;
-    transition: background 0.2s;
-  }
-  #submitBtn:hover { background: #40a9ff; }
-  #submitBtn:disabled { background: #d9d9d9; cursor: not-allowed; }
-  .status { margin-top: 12px; font-size: 14px; color: #888; }
-  details.debug-panel { margin-top: 8px; text-align: left; }
-  details.debug-panel > summary { cursor: pointer; color: #999; font-size: 12px; }
-  .debug {
-    margin-top: 6px; height: 100px; overflow-y: auto;
-    font-size: 12px; color: #aaa; white-space: pre;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  }
-  .success { color: #52c41a; font-size: 18px; margin-top: 20px; display: none; }
-</style>
-</head>
-<body>
-<div class="card">
-  <h2 id="headline">请按顺序点击图中指定的文字</h2>
-  <p class="hint" id="hint">在验证码图片上依次点击对应文字的位置</p>
-  <div class="img-wrap" id="imgWrap">
-    <img id="captchaImg" src="/captcha.img" alt="验证码" draggable="false">
-  </div>
-  <div class="actions">
-    <button id="undoBtn" type="button" onclick="undoClick()">撤销上一个</button>
-    <button id="clearBtn" type="button" onclick="clearClicks()">全部清除</button>
-  </div>
-  <p class="status" id="status">已选择 0 个点</p>
-  <details class="debug-panel" id="debugPanel">
-    <summary id="debugSummary">Debug</summary>
-    <pre class="debug" id="debug"></pre>
-  </details>
-  <button id="submitBtn" onclick="submitClicks()" disabled>提 交</button>
-  <div class="success" id="success">提交成功，可以关闭此页面</div>
-</div>
+var ErrRefreshCaptcha = errors.New("captcha refresh requested")
+
+const captchaPageHTML = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tinyrill 验证码</title><style>body{font:16px system-ui;max-width:800px;margin:40px auto;padding:16px;background:#f4f5f6;color:#18212b}main{background:white;padding:24px;border-radius:12px}#wrap{position:relative;display:inline-block;max-width:100%}img{display:block;max-width:100%;cursor:crosshair}.point{position:absolute;border-radius:50%;background:#006bc8;color:white;width:24px;height:24px;text-align:center;line-height:24px;transform:translate(-50%,-50%);pointer-events:none}button{font:inherit;padding:8px 16px;margin:12px 6px 0 0}#status{min-height:24px}</style>
+<main><h1>按顺序点选验证码</h1><p>{{.Customer}} · 会话 {{.Generation}}</p><div id="wrap"><img id="picture" src="image" alt="验证码" draggable="false"></div><p id="status">请点击图片指定的位置</p><button id="undo">撤销</button><button id="clear">清除</button><button id="refresh">换一张</button><button id="submit">提交</button></main>
 <script>
-var clicks = [];
-var imgWrap = document.getElementById('imgWrap');
-var captchaImg = document.getElementById('captchaImg');
-var statusEl = document.getElementById('status');
-var submitBtn = document.getElementById('submitBtn');
-var debugPanelEl = document.getElementById('debugPanel');
-var debugSummaryEl = document.getElementById('debugSummary');
-var debugEl = document.getElementById('debug');
-var headlineEl = document.getElementById('headline');
-var hintEl = document.getElementById('hint');
-var undoBtnEl = document.getElementById('undoBtn');
-var clearBtnEl = document.getElementById('clearBtn');
-var successEl = document.getElementById('success');
-var isSubmitting = false;
+const picture=document.querySelector('#picture'),wrap=document.querySelector('#wrap'),status=document.querySelector('#status');let points=[],busy=false;
+function render(){wrap.querySelectorAll('.point').forEach(e=>e.remove());points.forEach((p,i)=>{const m=document.createElement('span');m.className='point';m.textContent=i+1;m.style.left=(p[0]/picture.naturalWidth*100)+'%';m.style.top=(p[1]/picture.naturalHeight*100)+'%';wrap.appendChild(m)});status.textContent='已选择 '+points.length+' 个点'}
+picture.onclick=e=>{if(busy||points.length>=16)return;const r=picture.getBoundingClientRect();points.push([Math.min(picture.naturalWidth-1,Math.max(0,Math.floor((e.clientX-r.left)*picture.naturalWidth/r.width))),Math.min(picture.naturalHeight-1,Math.max(0,Math.floor((e.clientY-r.top)*picture.naturalHeight/r.height)))]);render()};
+document.querySelector('#undo').onclick=()=>{if(!busy){points.pop();render()}};document.querySelector('#clear').onclick=()=>{if(!busy){points=[];render()}};
+async function send(refresh){if(busy||(!refresh&&!points.length))return;busy=true;try{const r=await fetch('submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:{{.ID}},coordinates:points,width:picture.naturalWidth,height:picture.naturalHeight,refresh})});if(!r.ok)throw Error();status.textContent=refresh?'已请求新验证码，请回终端打开新链接。':'已提交，请回终端查看认证结果。';picture.style.visibility='hidden';document.querySelectorAll('button').forEach(b=>b.disabled=true)}catch(e){status.textContent='提交未完成或挑战已失效，请回终端查看。';busy=false}}
+document.querySelector('#submit').onclick=()=>send(false);document.querySelector('#refresh').onclick=()=>send(true);
+</script></html>`
 
-var I18N = {
-  zh: {
-    title: 'zju-connect 验证码',
-    heading: '请按顺序点击图中指定的文字',
-    hint: '在验证码图片上依次点击对应文字的位置',
-    undo: '撤销上一个', clear: '全部清除',
-    status: function(n) { return '已选择 ' + n + ' 个点'; },
-    submit: '提 交', submitting: '提交中...',
-    success: '提交成功，可以关闭此页面',
-    submitFailed: '提交失败，请重试',
-    networkError: '网络错误，请重试',
-    imgAlt: '验证码',
-    debugSummary: '调试信息'
-  },
-  en: {
-    title: 'zju-connect Captcha',
-    heading: 'Click the specified characters in order',
-    hint: 'Click the matching characters on the captcha image in sequence.',
-    undo: 'Undo', clear: 'Clear',
-    status: function(n) { return 'Selected ' + n + ' point' + (n !== 1 ? 's' : ''); },
-    submit: 'Submit', submitting: 'Submitting...',
-    success: 'Submitted. You may close this page.',
-    submitFailed: 'Submission failed. Please retry.',
-    networkError: 'Network error. Please retry.',
-    imgAlt: 'Captcha',
-    debugSummary: 'Debug'
-  }
-};
-
-var lang = (function() {
-  var l = ((navigator.languages && navigator.languages[0]) || navigator.language || '').toLowerCase();
-  return l.indexOf('zh') === 0 ? 'zh' : 'en';
-})();
-
-function tr(key) { return (I18N[lang] || I18N.en)[key]; }
-
-function applyLang() {
-  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
-  document.title = tr('title');
-  headlineEl.textContent = tr('heading');
-  hintEl.textContent = tr('hint');
-  undoBtnEl.textContent = tr('undo');
-  clearBtnEl.textContent = tr('clear');
-  captchaImg.alt = tr('imgAlt');
-  debugSummaryEl.textContent = tr('debugSummary');
-  successEl.textContent = tr('success');
-  renderStatus();
+type callbackResult struct {
+	response ClickCaptchaResponse
+	err      error
+}
+type captchaCallback struct {
+	challenge              Challenge
+	basePath, origin, host string
+	used                   atomic.Bool
+	result                 chan callbackResult
 }
 
-function renderStatus() {
-  statusEl.textContent = tr('status')(clicks.length);
-  submitBtn.textContent = isSubmitting ? tr('submitting') : tr('submit');
-  submitBtn.disabled = clicks.length === 0 || isSubmitting;
-}
-
-captchaImg.onload = function() { updateDebug(); };
-
-captchaImg.addEventListener('click', function(e) {
-  if (isSubmitting) return;
-  var rect = captchaImg.getBoundingClientRect();
-  var nw = captchaImg.naturalWidth || Math.round(rect.width);
-  var nh = captchaImg.naturalHeight || Math.round(rect.height);
-  var dw = rect.width || nw;
-  var dh = rect.height || nh;
-
-  var x = Math.max(0, Math.min(nw - 1, Math.round((e.clientX - rect.left) * nw / dw)));
-  var y = Math.max(0, Math.min(nh - 1, Math.round((e.clientY - rect.top) * nh / dh)));
-
-  clicks.push({x: x, y: y});
-  renderMarkers();
-  renderStatus();
-  updateDebug();
-});
-
-function updateDebug() {
-  var rect = captchaImg.getBoundingClientRect();
-  var lines = ['natural: ' + captchaImg.naturalWidth + 'x' + captchaImg.naturalHeight
-    + ', display: ' + Math.round(rect.width) + 'x' + Math.round(rect.height)
-    + ', dpr: ' + window.devicePixelRatio];
-  for (var i = 0; i < clicks.length; i++) {
-    lines.push((i+1) + ': (' + clicks[i].x + ', ' + clicks[i].y + ')');
-  }
-  debugEl.textContent = lines.join('\n');
-}
-
-function renderMarkers() {
-  var old = imgWrap.querySelectorAll('.marker');
-  for (var i = 0; i < old.length; i++) old[i].remove();
-
-  var rect = captchaImg.getBoundingClientRect();
-  var nw = captchaImg.naturalWidth || Math.round(rect.width);
-  var nh = captchaImg.naturalHeight || Math.round(rect.height);
-  var dw = rect.width || nw;
-  var dh = rect.height || nh;
-
-  for (var i = 0; i < clicks.length; i++) {
-    var m = document.createElement('div');
-    m.className = 'marker';
-    m.textContent = i + 1;
-    m.style.left = (clicks[i].x * dw / nw) + 'px';
-    m.style.top = (clicks[i].y * dh / nh) + 'px';
-    imgWrap.appendChild(m);
-  }
-}
-
-function undoClick() {
-  if (isSubmitting) return;
-  clicks.pop();
-  renderMarkers();
-  renderStatus();
-  updateDebug();
-}
-
-function clearClicks() {
-  if (isSubmitting) return;
-  clicks = [];
-  renderMarkers();
-  renderStatus();
-  updateDebug();
-}
-
-function submitClicks() {
-  if (clicks.length === 0 || isSubmitting) return;
-  var rect = captchaImg.getBoundingClientRect();
-  var width = captchaImg.naturalWidth || Math.round(rect.width);
-  var height = captchaImg.naturalHeight || Math.round(rect.height);
-  var payload = JSON.stringify({
-    coordinates: clicks.map(function(p) { return [p.x, p.y]; }),
-    width: width, height: height
-  });
-
-  isSubmitting = true;
-  renderStatus();
-
-  var xhr = new XMLHttpRequest();
-  xhr.open('POST', '/submit', true);
-  xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-  xhr.onload = function() {
-    if (xhr.status === 200) {
-      imgWrap.style.display = 'none';
-      document.querySelector('.actions').style.display = 'none';
-      statusEl.style.display = 'none';
-      submitBtn.style.display = 'none';
-      debugPanelEl.style.display = 'none';
-      successEl.style.display = 'block';
-    } else {
-      isSubmitting = false;
-      renderStatus();
-      alert(tr('submitFailed'));
-    }
-  };
-  xhr.onerror = function() {
-    isSubmitting = false;
-    renderStatus();
-    alert(tr('networkError'));
-  };
-  xhr.send('code=' + encodeURIComponent(payload));
-  return false;
-}
-
-applyLang();
-</script>
-</body>
-</html>`
-
-// serveCaptchaInBrowser starts a temporary HTTP server to display the captcha
-// image in the user's browser and waits for the user to click on character
-// positions and submit the coordinates.
-func serveCaptchaInBrowser(imgData []byte, timeout time.Duration, output io.Writer) (ClickCaptchaResponse, error) {
-	resultCh := make(chan ClickCaptchaResponse, 1)
-
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write([]byte(captchaPageHTML))
-	})
-
-	mux.HandleFunc("/captcha.img", func(w http.ResponseWriter, r *http.Request) {
-		contentType := http.DetectContentType(imgData)
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Write(imgData)
-	})
-
-	mux.HandleFunc("/submit", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		code := r.FormValue("code")
-		if code == "" {
-			http.Error(w, "empty code", http.StatusBadRequest)
-			return
-		}
-		response, err := parseClickCaptchaResponse(code)
-		if err != nil {
-			http.Error(w, "invalid code: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		select {
-		case resultCh <- response:
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("ok"))
-		default:
-			http.Error(w, "already submitted", http.StatusConflict)
-		}
-	})
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return ClickCaptchaResponse{}, fmt.Errorf("failed to start captcha server: %w", err)
+func newCaptchaCallback(c Challenge, externalURL string) (*captchaCallback, error) {
+	u, err := url.Parse(externalURL)
+	if err != nil || u.Scheme != "http" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return nil, errors.New("callback URL must be an HTTP loopback origin")
 	}
-
-	srv := &http.Server{Handler: mux}
-
-	go srv.Serve(listener)
-
-	addr := fmt.Sprintf("http://%s", listener.Addr().String())
-	_, _ = fmt.Fprintf(output, "Captcha server started at %s\n", addr)
-
-	openBrowser(addr, output)
-
-	select {
-	case response := <-resultCh:
-		srv.Shutdown(context.Background())
-		return response, nil
-	case <-time.After(timeout):
-		srv.Shutdown(context.Background())
-		return ClickCaptchaResponse{}, fmt.Errorf("captcha input timed out after %v", timeout)
+	host := net.ParseIP(u.Hostname())
+	if host == nil || !host.IsLoopback() || u.Port() == "" {
+		return nil, errors.New("callback URL must include a loopback IP and explicit port")
 	}
+	return &captchaCallback{challenge: c, basePath: "/c/" + rand.Text() + "/", origin: u.String(), host: u.Host, result: make(chan callbackResult, 1)}, nil
 }
 
-// openBrowser tries to open the given URL in the system's default browser.
-func openBrowser(url string, output io.Writer) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "linux":
-		cmd = exec.Command("xdg-open", url)
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
-	default:
-		_, _ = fmt.Fprintf(output, "Unsupported platform for auto-opening browser, please visit: %s\n", url)
+func (c *captchaCallback) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	if r.Host != c.host || (r.Header.Get("Origin") != "" && r.Header.Get("Origin") != c.origin) || r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+		http.Error(w, "origin rejected", http.StatusForbidden)
 		return
 	}
-	if err := cmd.Start(); err != nil {
-		_, _ = fmt.Fprintf(output, "Failed to open browser: %v. Please visit: %s\n", err, url)
+	if time.Now().After(c.challenge.Meta.Expires) || c.used.Load() {
+		http.Error(w, "challenge expired", http.StatusGone)
+		return
+	}
+	switch r.URL.Path {
+	case c.basePath:
+		if r.Method != http.MethodGet {
+			http.Error(w, "method rejected", 405)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = template.Must(template.New("captcha").Parse(captchaPageHTML)).Execute(w, c.challenge.Meta)
+	case c.basePath + "image":
+		if r.Method != http.MethodGet {
+			http.Error(w, "method rejected", 405)
+			return
+		}
+		w.Header().Set("Content-Type", http.DetectContentType(c.challenge.Image))
+		_, _ = w.Write(c.challenge.Image)
+	case c.basePath + "submit":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method rejected", 405)
+			return
+		}
+		if r.Header.Get("Origin") != c.origin || r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "origin or content type rejected", 403)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+		var payload struct {
+			ID          string  `json:"id"`
+			Coordinates [][]int `json:"coordinates"`
+			Width       int     `json:"width"`
+			Height      int     `json:"height"`
+			Refresh     bool    `json:"refresh"`
+		}
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&payload) != nil || payload.ID != c.challenge.Meta.ID {
+			http.Error(w, "invalid response", 400)
+			return
+		}
+		var trailing any
+		if decoder.Decode(&trailing) != io.EOF {
+			http.Error(w, "invalid response", 400)
+			return
+		}
+		result := callbackResult{}
+		if payload.Refresh {
+			result.err = ErrRefreshCaptcha
+		} else {
+			points, err := pointsFromCoordinates(payload.Coordinates)
+			points.Width, points.Height = payload.Width, payload.Height
+			if err == nil {
+				err = validateImagePoints(c.challenge.Image, points)
+			}
+			if err != nil {
+				http.Error(w, "invalid coordinates", 400)
+				return
+			}
+			result.response = points
+		}
+		if !c.used.CompareAndSwap(false, true) {
+			http.Error(w, "already submitted", 409)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		c.result <- result
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (h *CLIHandler) clickInBrowser(ctx context.Context, challenge Challenge) (ClickCaptchaResponse, error) {
+	listener, err := net.Listen("tcp", h.options.CallbackListen)
+	if err != nil {
+		return ClickCaptchaResponse{}, fmt.Errorf("reserve captcha callback: %w", err)
+	}
+	defer listener.Close()
+	external := strings.TrimSuffix(h.options.CallbackURL, "/")
+	if external == "" {
+		external = "http://" + listener.Addr().String()
+	}
+	callback, err := newCaptchaCallback(challenge, external)
+	if err != nil {
+		return ClickCaptchaResponse{}, err
+	}
+	server := &http.Server{Handler: callback, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 10 * time.Second, MaxHeaderBytes: 16 << 10}
+	defer func() {
+		closing, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = server.Shutdown(closing)
+		_ = server.Close()
+	}()
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.Serve(listener) }()
+	fmt.Fprintf(h.options.Output, "Open captcha page (expires with this challenge): %s%s\n", external, callback.basePath)
+	select {
+	case result := <-callback.result:
+		return result.response, result.err
+	case <-ctx.Done():
+		return ClickCaptchaResponse{}, ctx.Err()
+	case err := <-serveErr:
+		return ClickCaptchaResponse{}, err
 	}
 }
