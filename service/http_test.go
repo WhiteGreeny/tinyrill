@@ -32,7 +32,7 @@ func (b *trackingBody) Close() error {
 
 func TestHTTPProxyClosesUpstreamResponseBody(t *testing.T) {
 	body := &trackingBody{Reader: bytes.NewBufferString("response")}
-	proxy := newHTTPProxy(dial.NewDialer(nil, nil, nil, false, ""))
+	proxy := newHTTPProxy(dial.NewDialer(nil, nil, nil))
 	proxy.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -51,10 +51,13 @@ func TestHTTPProxyClosesUpstreamResponseBody(t *testing.T) {
 }
 
 func TestHTTPProxyTransportHasBoundedPool(t *testing.T) {
-	proxy := newHTTPProxy(dial.NewDialer(nil, nil, nil, false, ""))
+	proxy := newHTTPProxy(dial.NewDialer(nil, nil, nil))
 	transport, ok := proxy.client.Transport.(*http.Transport)
 	if !ok {
 		t.Fatalf("transport type = %T, want *http.Transport", proxy.client.Transport)
+	}
+	if transport.Proxy != nil {
+		t.Fatal("business transport must not inherit environment proxies")
 	}
 	if transport.MaxIdleConns <= 0 || transport.MaxIdleConnsPerHost <= 0 {
 		t.Fatalf("idle limits = global %d, per-host %d; want positive", transport.MaxIdleConns, transport.MaxIdleConnsPerHost)
@@ -95,7 +98,10 @@ func TestHTTPConnectClosesTargetWhenClientDisconnects(t *testing.T) {
 		}
 	}()
 
-	proxy := httptest.NewServer(newHTTPHandler(dial.NewDialer(nil, nil, nil, false, "")))
+	handler := newHTTPProxy(dial.NewDialer(nil, nil, nil))
+	// Exercise relay lifetime independently from the VPN routing policy.
+	handler.dialContext = (&net.Dialer{}).DialContext
+	proxy := httptest.NewServer(handler)
 	defer proxy.Close()
 
 	clientConn, err := net.Dial("tcp", proxy.Listener.Addr().String())

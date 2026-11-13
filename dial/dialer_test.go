@@ -2,6 +2,7 @@ package dial
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 
@@ -93,6 +94,7 @@ func TestDialIPPortCarriesTCPPrefL3IPResource(t *testing.T) {
 }
 
 type capturingStack struct {
+	calls          int
 	domainResource client.DomainResource
 	ipResource     client.IPResource
 }
@@ -101,6 +103,7 @@ func (s *capturingStack) Run()                                                {}
 func (s *capturingStack) SetupResolve(zcdns.LocalServer)                      {}
 func (s *capturingStack) SetupIPPool(*ippool.IPPool[[]client.DomainResource]) {}
 func (s *capturingStack) DialTCP(ctx context.Context, _ *net.TCPAddr) (net.Conn, error) {
+	s.calls++
 	if resource, ok := ctx.Value(resolve.ContextKeyDomainResource).(client.DomainResource); ok {
 		s.domainResource = resource
 	}
@@ -111,4 +114,55 @@ func (s *capturingStack) DialTCP(ctx context.Context, _ *net.TCPAddr) (net.Conn,
 }
 func (s *capturingStack) DialUDP(context.Context, *net.UDPAddr) (net.Conn, error) {
 	return nil, nil
+}
+
+func TestBusinessDialFailsClosed(t *testing.T) {
+	vpn := &capturingStack{}
+	d := NewDialer(vpn, nil, []client.IPResource{{
+		IPMin: net.ParseIP("10.0.0.1"), IPMax: net.ParseIP("10.0.0.1"),
+		PortMin: 443, PortMax: 443, Protocol: "tcp",
+	}})
+	for _, test := range []struct {
+		network, address string
+		want             error
+	}{
+		{"tcp", "127.0.0.1:443", ErrACLDenied},
+		{"tcp", "10.0.0.1:80", ErrACLDenied},
+		{"tcp", "[::1]:443", ErrAddressFamily},
+		{"tcp", "private.invalid:443", resolve.ErrNoVPNDNS},
+		{"udp", "10.0.0.1:443", ErrUnsupportedNetwork},
+		{"tcp", "10.0.0.1:0", nil},
+		{"tcp", "10.0.0.1:65536", nil},
+		{"tcp", "invalid", nil},
+	} {
+		t.Run(test.network+"/"+test.address, func(t *testing.T) {
+			conn, err := d.Dial(context.Background(), test.network, test.address)
+			if conn != nil || err == nil || (test.want != nil && !errors.Is(err, test.want)) {
+				t.Fatalf("Dial = (%v, %v), want rejection %v", conn, err, test.want)
+			}
+		})
+	}
+	if vpn.calls != 0 {
+		t.Fatalf("denied requests reached VPN: %d", vpn.calls)
+	}
+	if _, err := d.Dial(context.Background(), "tcp", "10.0.0.1:443"); err != nil {
+		t.Fatal(err)
+	}
+	if vpn.calls != 1 {
+		t.Fatal("authorized destination did not use VPN")
+	}
+}
+
+func TestMissingResourcesNeverPermitDirectConnection(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	for _, resources := range [][]client.IPResource{nil, {}} {
+		d := NewDialer(nil, nil, resources)
+		if _, err := d.Dial(context.Background(), "tcp", listener.Addr().String()); !errors.Is(err, ErrACLDenied) {
+			t.Fatalf("reachable local destination was not denied: %v", err)
+		}
+	}
 }

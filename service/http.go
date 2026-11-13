@@ -65,6 +65,8 @@ func newHTTPProxy(dialer *dial.Dialer) *httpProxy {
 		tunnels:     make(map[*httpTunnel]struct{}),
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Every request belongs to this VPN, regardless of HTTP_PROXY/HTTPS_PROXY.
+	transport.Proxy = nil
 	transport.DialContext = proxy.dialContext
 	transport.MaxIdleConns = httpProxyMaxIdleConns
 	transport.MaxIdleConnsPerHost = httpProxyMaxIdleConnsPerHost

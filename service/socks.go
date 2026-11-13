@@ -27,6 +27,7 @@ func ServeSocks5(bindAddr string, dialer *dial.Dialer, resolver *resolve.Resolve
 	}
 
 	server := socks5.NewServer(
+		socks5.WithRule(&socks5.PermitCommand{EnableConnect: true}),
 		socks5.WithAuthMethods(authMethods),
 		socks5.WithResolver(resolver),
 		socks5.WithDial(dialer.DialIPPort),

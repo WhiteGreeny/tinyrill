@@ -20,6 +20,7 @@ const (
 func KeepAlive(ctx context.Context, resolver *resolve.Resolver, dialer *dial.Dialer, keepAliveURL string) {
 	if keepAliveURL != "" {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.Proxy = nil
 		transport.DialContext = dialer.Dial
 		transport.ResponseHeaderTimeout = keepAliveRequestTimeout
 		client := &http.Client{

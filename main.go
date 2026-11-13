@@ -335,7 +335,7 @@ func main() {
 		remoteDNSServer, err = vpnClient.DNSServer()
 		if err != nil {
 			useRemoteDNS = false
-			remoteDNSServer = "10.10.0.21"
+			remoteDNSServer = ""
 			log.Println("No DNS server provided by server. Disable remote DNS")
 		} else {
 			log.Printf("Use DNS server %s provided by server", remoteDNSServer)
@@ -343,7 +343,7 @@ func main() {
 	}
 	secondaryDNSServer := conf.SecondaryDNSServer
 	if secondaryDNSServer == "auto" {
-		secondaryDNSServer = "114.114.114.114"
+		secondaryDNSServer = ""
 		if len(policyDNSServers) > 1 {
 			secondaryDNSServer = policyDNSServers[1]
 			log.Printf("Use secondary DNS server %s provided by server", secondaryDNSServer)
@@ -378,7 +378,7 @@ func main() {
 
 	go vpnStack.Run()
 
-	vpnDialer := dial.NewDialer(vpnStack, vpnResolver, ipResources, conf.ProxyAll, conf.DialDirectProxy)
+	vpnDialer := dial.NewDialer(vpnStack, vpnResolver, ipResources)
 
 	if conf.DNSServerBind != "" {
 		go service.ServeDNS(conf.DNSServerBind, localResolver)

@@ -44,6 +44,8 @@ type Resolver struct {
 
 const remoteDNSTCPFallbackDelay = 300 * time.Millisecond
 
+var ErrNoVPNDNS = errors.New("no VPN DNS server or resource mapping is available")
+
 type lookupIPFunc func(context.Context, string, string) ([]net.IP, error)
 
 type dnsLookupResult struct {
@@ -95,6 +97,15 @@ func TCPPrefersL3(ctx context.Context) bool {
 
 // Resolve ip address. If the host could be visited via VPN, this function set a DOMAIN_RESOURCE value in context. If resolve success, this function set a RESOLVE_HOST value in context.
 func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Context, resIP net.IP, resErr error) {
+	if err := ctx.Err(); err != nil {
+		return ctx, nil, err
+	}
+	r.resolutionMu.Lock()
+	closed := r.resolutionClosed
+	r.resolutionMu.Unlock()
+	if closed {
+		return ctx, nil, net.ErrClosed
+	}
 	host = normalizeHostname(host)
 	defer func() {
 		if resErr == nil {
@@ -139,7 +150,7 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 		}
 	}
 
-	if r.useRemoteDNS {
+	if r.useRemoteDNS && r.remoteUDPResolver != nil && r.remoteTCPResolver != nil {
 		ip, err := r.resolveCoordinated(ctx, host, func(lookupCtx context.Context) (net.IP, error) {
 			return r.resolveRemote(lookupCtx, host)
 		})
@@ -147,7 +158,9 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 			if ctx.Err() != nil {
 				return ctx, nil, ctx.Err()
 			}
-			log.Printf("Resolve IPv4 addr failed using remote DNS: %s, using secondary DNS instead", host)
+			if r.secondaryResolver == nil {
+				return ctx, nil, err
+			}
 			return r.ResolveWithSecondaryDNS(ctx, host)
 		}
 		log.Printf("%s -> %s", host, ip.String())
@@ -165,7 +178,7 @@ func (r *Resolver) resolveCoordinated(ctx context.Context, host string, lookup f
 	}
 	call := r.resolutions[host]
 	if call == nil {
-		lookupCtx, cancel := context.WithCancel(context.Background())
+		lookupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		call = &sharedResolution{ctx: lookupCtx, cancel: cancel, done: make(chan struct{})}
 		if r.resolutions == nil {
 			r.resolutions = make(map[string]*sharedResolution)
@@ -342,23 +355,17 @@ func (r *Resolver) RemoteTCPResolver() (*net.Resolver, error) {
 	}
 }
 
+// ResolveWithSecondaryDNS uses only another resolver reachable through the VPN.
 func (r *Resolver) ResolveWithSecondaryDNS(ctx context.Context, host string) (context.Context, net.IP, error) {
-	if targets, err := r.secondaryResolver.LookupIP(ctx, "ip4", host); err != nil {
-		log.Printf("Resolve IPv4 addr failed using secondary DNS: %s. Try IPv6 addr", host)
-
-		if targets, err = r.secondaryResolver.LookupIP(ctx, "ip6", host); err != nil {
-			log.Printf("Resolve IPv6 addr failed using secondary DNS: %s", host)
-			return ctx, nil, err
-		} else {
-			log.Printf("%s -> %s", host, targets[0].String())
-			return ctx, targets[0], nil
-		}
-	} else {
-		log.Printf("%s -> %s", host, targets[0].String())
-		return ctx, targets[0], nil
+	if r.secondaryResolver == nil {
+		return ctx, nil, ErrNoVPNDNS
 	}
+	ip, err := r.resolveCoordinated(ctx, "secondary:"+host, func(lookupCtx context.Context) (net.IP, error) {
+		ips, err := r.secondaryResolver.LookupIP(lookupCtx, "ip4", host)
+		return r.cacheFirstIP(host, ips, err)
+	})
+	return ctx, ip, err
 }
-
 func (r *Resolver) Close() {
 	r.closeOnce.Do(func() {
 		r.resolutionMu.Lock()
@@ -377,55 +384,35 @@ func (r *Resolver) Close() {
 	})
 }
 
-func NewResolver(stack stack.Stack, remoteDNSServer, secondaryDNSServer string, ttl uint64, domainResources client.DomainResources, dnsResource map[string][]net.IP, useRemoteDNS bool) *Resolver {
-	//domainSuffixTree := domainsuffixtrie.NewDomainSuffixTrie[bool]()
-	//for domain := range domainResource {
-	//	_ = domainSuffixTree.AddDomainSuffix(domain, true)
-	//}
+// newVPNResolver cannot fall back to net.DefaultResolver or the host network.
+func newVPNResolver(vpnStack stack.Stack, server string, forceTCP bool) *net.Resolver {
+	ip := net.ParseIP(server)
+	if vpnStack == nil || ip == nil || ip.To4() == nil {
+		return nil
+	}
+	return &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		if forceTCP || network == "tcp" {
+			return vpnStack.DialTCP(ctx, &net.TCPAddr{IP: ip.To4(), Port: 53})
+		}
+		return vpnStack.DialUDP(ctx, &net.UDPAddr{IP: ip.To4(), Port: 53})
+	}}
+}
 
+func NewResolver(vpnStack stack.Stack, remoteDNSServer, secondaryDNSServer string, ttl uint64, domainResources client.DomainResources, dnsResource map[string][]net.IP, useRemoteDNS bool) *Resolver {
+	if ttl == 0 {
+		ttl = 300
+	}
 	resolver := &Resolver{
-		remoteUDPResolver: &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				return stack.DialUDP(ctx, &net.UDPAddr{
-					IP:   net.ParseIP(remoteDNSServer),
-					Port: 53,
-				})
-			},
-		},
-		remoteTCPResolver: &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				return stack.DialTCP(ctx, &net.TCPAddr{
-					IP:   net.ParseIP(remoteDNSServer),
-					Port: 53,
-				})
-			},
-		},
-		ttl:          ttl,
-		domainIndex:  newDomainResourceIndex(domainResources),
-		dnsResource:  dnsResource,
-		dnsCache:     cache.New(time.Duration(ttl)*time.Second, time.Duration(ttl)*2*time.Second),
-		useRemoteDNS: useRemoteDNS,
+		remoteUDPResolver: newVPNResolver(vpnStack, remoteDNSServer, false),
+		remoteTCPResolver: newVPNResolver(vpnStack, remoteDNSServer, true),
+		secondaryResolver: newVPNResolver(vpnStack, secondaryDNSServer, true),
+		ttl:               ttl,
+		domainIndex:       newDomainResourceIndex(domainResources),
+		dnsResource:       dnsResource,
+		dnsCache:          cache.New(time.Duration(ttl)*time.Second, time.Duration(ttl)*2*time.Second),
+		useRemoteDNS:      useRemoteDNS,
 	}
-
-	if secondaryDNSServer != "" {
-		resolver.secondaryResolver = &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(secondaryDNSServer, "53"))
-			},
-		}
-	} else {
-		resolver.secondaryResolver = &net.Resolver{
-			PreferGo: true,
-		}
-	}
-	var err error
-	resolver.IPPool, err = ippool.NewIPPool[[]client.DomainResource]("198.18.0.0/16")
-	if err != nil {
-		log.Fatalf("Create Fake IP Pool failed: %v", err)
-	}
-
+	// This constant IPv4 pool is protocol-internal; it does not create a host TUN.
+	resolver.IPPool, _ = ippool.NewIPPool[[]client.DomainResource]("198.18.0.0/16")
 	return resolver
 }
