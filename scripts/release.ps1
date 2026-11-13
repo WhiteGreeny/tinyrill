@@ -50,19 +50,24 @@ try {
     $licensesDir = Join-Path $target 'licenses'
     New-Item -ItemType Directory $licensesDir | Out-Null
     $goroot = (go env GOROOT).Trim()
-    Copy-Item -LiteralPath (Join-Path $goroot 'LICENSE') -Destination (Join-Path $licensesDir 'Go-LICENSE')
-    $licenseIndex = foreach ($line in (go list -m -f '{{json .}}' all)) {
-        $module = $line | ConvertFrom-Json
-        if ($module.Main) { continue }
-        $actual = if ($module.Replace) { $module.Replace } else { $module }
+    [IO.File]::WriteAllBytes((Join-Path $licensesDir 'Go-LICENSE'),[IO.File]::ReadAllBytes((Join-Path $goroot 'LICENSE')))
+    $moduleLines = go list -deps -f '{{with .Module}}{{.Path}}|{{.Version}}|{{.Main}}|{{if .Replace}}{{.Replace.Path}}|{{.Replace.Version}}|{{.Replace.Dir}}{{else}}{{.Path}}|{{.Version}}|{{.Dir}}{{end}}{{end}}' .
+    $licenseIndex = foreach ($line in ($moduleLines | Where-Object { $_ } | Sort-Object -Unique)) {
+        # Module identities cannot contain |; the last field retains any | in a local directory.
+        $fields = $line.Split('|',6)
+        if ($fields.Count -ne 6) { throw 'Unexpected Go module metadata' }
+        if ($fields[2] -eq 'true') { continue }
+        $actual = [pscustomobject]@{Path=$fields[3]; Version=$fields[4]; Dir=$fields[5]}
         if (!$actual.Dir) { continue }
         $notices = @(Get-ChildItem -LiteralPath $actual.Dir -File | Where-Object { $_.Name -match '^(LICEN[CS]E|COPYING|NOTICE|COPYRIGHT)([.-].*)?$' })
         if (!$notices.Count) { throw "No license material found for $($actual.Path)@$($actual.Version)" }
         $label = ($actual.Path + '@' + $actual.Version).Replace('/','_')
         $noticeDir = Join-Path $licensesDir $label
         New-Item -ItemType Directory -Force $noticeDir | Out-Null
-        foreach ($notice in $notices) { Copy-Item -LiteralPath $notice.FullName -Destination $noticeDir }
-        [ordered]@{module=$module.Path; source=$actual.Path; version=$actual.Version; directory=$label}
+        foreach ($notice in $notices) {
+            [IO.File]::WriteAllBytes((Join-Path $noticeDir $notice.Name),[IO.File]::ReadAllBytes($notice.FullName))
+        }
+        [ordered]@{module=$fields[0]; source=$actual.Path; version=$actual.Version; directory=$label}
     }
     ConvertTo-Json -InputObject @($licenseIndex) -Depth 4 | Set-Content -Encoding utf8NoBOM (Join-Path $licensesDir 'index.json')
     Copy-Item -LiteralPath LICENSE,README.md,THIRD_PARTY.md -Destination $target
