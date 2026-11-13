@@ -112,8 +112,7 @@ func (s *Session) cas(callback string) error {
 		return err
 	}
 
-	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received cas data: %s", string(body))
+	_, _ = io.Copy(io.Discard, resp.Body)
 	s.ticket = ticket
 	return nil
 }

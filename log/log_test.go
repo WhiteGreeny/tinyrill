@@ -28,3 +28,25 @@ func TestDebugPrintfHonorsEnabledState(t *testing.T) {
 		t.Fatalf("enabled debug output = %q, want visible message", output.String())
 	}
 }
+
+func TestSecretsOmittedInNormalAndDebugLogs(t *testing.T) {
+	var out bytes.Buffer
+	old := stdlog.Writer()
+	stdlog.SetOutput(&out)
+	defer func() { stdlog.SetOutput(old); DisableDebug() }()
+	for _, enabled := range []bool{false, true} {
+		if enabled {
+			EnableDebug()
+		} else {
+			DisableDebug()
+		}
+		Printf("password=%s Cookie=%s SID=%s SignKey=%s", "secret-password", "secret-cookie", "secret-sid", "secret-signkey")
+		DebugPrintf("token=%s https://user:secret-user@vpn.example/auth?code=secret-query", "secret-token")
+		DumpHex([]byte("secret-payload"))
+		DebugDumpHex([]byte("secret-debug-payload"))
+	}
+	Println("untrusted\x1b[31m\nforged")
+	if strings.Contains(out.String(), "secret-") || strings.Contains(out.String(), "\x1b") {
+		t.Fatalf("leaked data: %s", out.String())
+	}
+}

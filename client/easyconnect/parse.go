@@ -8,12 +8,15 @@ import (
 
 	"github.com/beevik/etree"
 	"github.com/mythologyli/zju-connect/client"
+	"github.com/mythologyli/zju-connect/internal/bounded"
 	"github.com/mythologyli/zju-connect/log"
 	"inet.af/netaddr"
 )
 
 func (c *Client) parseLineListFromConfig(config string) error {
-	log.DebugPrintf("Config: %s", config)
+	if err := bounded.XML(config); err != nil {
+		return err
+	}
 
 	log.Println("Parsing line list from config...")
 
@@ -24,12 +27,16 @@ func (c *Client) parseLineListFromConfig(config string) error {
 		return err
 	}
 
-	element := doc.SelectElement("Conf").SelectElement("Mline")
+	root := doc.SelectElement("Conf")
+	if root == nil {
+		return errors.New("no Conf element found")
+	}
+	element := root.SelectElement("Mline")
 	if element == nil {
 		return errors.New("no Mline element found")
 	}
 
-	if element.SelectAttr("enable") == nil && element.SelectAttr("enable").Value != "1" {
+	if element.SelectAttrValue("enable", "") != "1" {
 		return errors.New("server disable Mline")
 	}
 
@@ -43,6 +50,10 @@ func (c *Client) parseLineListFromConfig(config string) error {
 	}
 
 	lineList := strings.Split(lineListStr, ";")
+	if len(lineList) > 64 {
+		return errors.New("too many gateway lines")
+	}
+	c.lineList = nil
 
 	for _, line := range lineList {
 		if line != "" {
@@ -58,7 +69,9 @@ func (c *Client) parseLineListFromConfig(config string) error {
 }
 
 func (c *Client) parseResources(resources string) error {
-	log.DebugPrintf("Resources: %s", resources)
+	if err := bounded.XML(resources); err != nil {
+		return err
+	}
 
 	log.Println("Parsing resources...")
 
@@ -81,15 +94,20 @@ func (c *Client) parseResources(resources string) error {
 	c.domainResources = make(client.DomainResources)
 	c.dnsResource = make(map[string][]net.IP)
 
-	element := doc.SelectElement("Resource").SelectElement("Rcs")
+	root := doc.SelectElement("Resource")
+	if root == nil {
+		return errors.New("no Resource element found")
+	}
+	element := root.SelectElement("Rcs")
 	if element == nil {
 		return errors.New("no Rcs element found")
 	}
 
+	count := 0
 	for _, rc := range element.SelectElements("Rc") {
-		if rc.SelectAttr("type").Value == "1" || rc.SelectAttr("type").Value == "2" {
+		if rc.SelectAttrValue("type", "") == "1" || rc.SelectAttrValue("type", "") == "2" {
 			var protocol string
-			protoStr := rc.SelectAttr("proto").Value
+			protoStr := rc.SelectAttrValue("proto", "")
 			if protoStr == "-1" {
 				protocol = "all"
 			} else if protoStr == "0" {
@@ -100,6 +118,7 @@ func (c *Client) parseResources(resources string) error {
 				protocol = "icmp"
 			} else {
 				log.DebugPrintf("Unknown protocol: %s", protoStr)
+				continue
 			}
 
 			hostListStr := rc.SelectAttr("host")
@@ -120,6 +139,10 @@ func (c *Client) parseResources(resources string) error {
 			}
 
 			for i, host := range hostList {
+				count++
+				if count > 16384 {
+					return errors.New("too many gateway resources")
+				}
 				portRangeStr := portRangeList[i]
 				portRange := strings.Split(portRangeStr, "~")
 				if len(portRange) != 2 {
@@ -132,7 +155,7 @@ func (c *Client) parseResources(resources string) error {
 					continue
 				}
 				portMax, err := strconv.Atoi(portRange[1])
-				if err != nil {
+				if err != nil || portMin < 0 || portMax > 65535 || portMin > portMax {
 					log.DebugPrintf("Invalid port range: %s", portRangeStr)
 					continue
 				}
@@ -148,13 +171,13 @@ func (c *Client) parseResources(resources string) error {
 						continue
 					}
 					ipMin = net.ParseIP(ipList[0])
-					if ipMin == nil {
+					if ipMin == nil || ipMin.To4() == nil {
 						log.DebugPrintf("Invalid IP range: %s", host)
 						continue
 					}
 					ipMax = net.ParseIP(ipList[1])
 
-					if ipMax == nil {
+					if ipMax == nil || ipMax.To4() == nil {
 						log.DebugPrintf("Invalid IP range: %s", host)
 						continue
 					}
@@ -169,6 +192,12 @@ func (c *Client) parseResources(resources string) error {
 					host = strings.ReplaceAll(host, "*", "")
 					if strings.Contains(host, ":") {
 						host, hostPort, err = net.SplitHostPort(host)
+						if err != nil {
+							continue
+						}
+					}
+					if host == "" || len(host) > 253 {
+						continue
 					}
 					ipMin = net.ParseIP(host)
 					if ipMin == nil {
@@ -180,6 +209,9 @@ func (c *Client) parseResources(resources string) error {
 
 						log.DebugPrintf("Add domain: %s, Port range: %d ~ %d, [%s]", host, portMin, portMax, protocol)
 					} else {
+						if ipMin.To4() == nil {
+							continue
+						}
 						ipMax = ipMin
 						if hostPortInt, err := strconv.Atoi(hostPort); hostPort != "" && err == nil {
 							portMin = hostPortInt
@@ -210,17 +242,18 @@ func (c *Client) parseResources(resources string) error {
 		}
 	}
 
-	element = doc.SelectElement("Resource").SelectElement("Dns")
+	c.ipSet, err = ipSetBuilder.IPSet()
+	if err != nil {
+		return err
+	}
+	c.dnsServer = ""
+	c.dnsServers = nil
+	element = root.SelectElement("Dns")
 	if element == nil {
-		return errors.New("no Rcs element found")
+		return nil
 	}
 
-	dnsListStr := element.SelectAttr("data")
-	if dnsListStr == nil {
-		return errors.New("no Dns data attribute found")
-	}
-
-	for _, dnsStr := range strings.Split(dnsListStr.Value, ";") {
+	for _, dnsStr := range strings.Split(element.SelectAttrValue("data", ""), ";") {
 		if dnsStr == "" {
 			continue
 		}
@@ -239,19 +272,8 @@ func (c *Client) parseResources(resources string) error {
 		log.DebugPrintf("Add DNS rule: %s -> %s", dnsParts[1], dnsParts[2])
 	}
 
-	c.ipSet, err = ipSetBuilder.IPSet()
-	if err != nil {
-		return err
-	}
-
-	dnsServerStr := element.SelectAttr("dnsserver")
-	if dnsServerStr == nil {
-		return errors.New("no Dns dnsserver attribute found")
-	}
-
-	c.dnsServers = c.dnsServers[:0]
-	for _, server := range strings.Split(dnsServerStr.Value, ";") {
-		if server != "" {
+	for _, server := range strings.Split(element.SelectAttrValue("dnsserver", ""), ";") {
+		if ip := net.ParseIP(server); ip != nil && ip.To4() != nil && !ip.IsUnspecified() {
 			c.dnsServers = append(c.dnsServers, server)
 		}
 	}
@@ -261,10 +283,6 @@ func (c *Client) parseResources(resources string) error {
 
 	if c.dnsServer == "0.0.0.0" {
 		c.dnsServer = ""
-	}
-
-	if c.dnsServer == "" && !c.tcpTunnelOnly {
-		return errors.New("DNS server invalid")
 	}
 
 	return nil

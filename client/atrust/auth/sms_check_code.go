@@ -89,7 +89,6 @@ func (s *Session) sendSms(phone, loginDomain, graphCheckCode string) (int, error
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received sendSms: %s", string(body))
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -104,12 +103,11 @@ func (s *Session) sendSms(phone, loginDomain, graphCheckCode string) (int, error
 	if err != nil {
 		return 0, err
 	}
-	log.DebugPrintf("Parsed sendSms: %+v", re)
 	if re.Code != 0 {
 		if re.Data.GraphCheckCodeEnable == 1 {
 			return re.Data.GraphCheckCodeEnable, nil
 		}
-		return 0, fmt.Errorf("sendSms failed with code %d: %s", re.Code, re.Message)
+		return 0, gatewayAuthError("sendSms failed", re.Code)
 	}
 
 	return re.Data.GraphCheckCodeEnable, nil
@@ -144,7 +142,6 @@ func (s *Session) smsCheckCodeImpl(code, phone, loginDomain, graphCheckCode stri
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received smsCheckCode: %s", string(body))
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -162,9 +159,8 @@ func (s *Session) smsCheckCodeImpl(code, phone, loginDomain, graphCheckCode stri
 		if re.Data.GraphCheckCodeEnable == 1 {
 			return re.Data.GraphCheckCodeEnable, nil
 		}
-		return 0, fmt.Errorf("SMS authentication failed with code %d: %s", re.Code, re.Message)
+		return 0, gatewayAuthError("SMS authentication failed", re.Code)
 	}
-	log.DebugPrintf("Parsed smsCheckCode: %+v", re)
 
 	if re.Data.Ticket == "" && re.Data.GraphCheckCodeEnable == 0 {
 		return 0, fmt.Errorf("SMS authentication succeeded without a ticket")

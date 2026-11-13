@@ -23,9 +23,15 @@ func (c *Client) setSessionSID(sid string, err error) {
 }
 
 func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginResult, error), data auth.ClientAuthData, save func([]byte) error, interval time.Duration) {
-	c.refreshDone = make(chan struct{})
+	c.maintenanceMu.Lock()
+	defer c.maintenanceMu.Unlock()
+	if c.lifecycleCtx.Err() != nil || c.refreshDone != nil {
+		return
+	}
+	done := make(chan struct{})
+	c.refreshDone = done
 	go func() {
-		defer close(c.refreshDone)
+		defer close(done)
 		timer := time.NewTimer(interval)
 		defer timer.Stop()
 		for {

@@ -53,15 +53,10 @@ func (s *Session) loginAuthPsw(username, password, loginDomain, graphCodeFile st
 func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string) (int, error) {
 	log.Println("Perform POST /passport/v1/auth/psw")
 
-	N, ok := new(big.Int).SetString(s.pubKey, 16)
-	if !ok {
-		return 0, fmt.Errorf("invalid RSA public key modulus")
+	pub, err := s.rsaPublicKey()
+	if err != nil {
+		return 0, err
 	}
-	E, err := strconv.Atoi(s.pubKeyExp)
-	if err != nil || E <= 0 {
-		return 0, fmt.Errorf("invalid RSA public key exponent %q", s.pubKeyExp)
-	}
-	pub := &rsa.PublicKey{N: N, E: E}
 
 	msg := []byte(password + "_" + s.antiReplayRand)
 	cipherBytes, err := encryptPKCS1v15Chunks(pub, msg)
@@ -98,7 +93,6 @@ func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received psw: %s", string(body))
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -118,9 +112,8 @@ func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string
 		if re.Data.GraphCheckCodeEnable == 1 {
 			return re.Data.GraphCheckCodeEnable, nil
 		}
-		return 0, fmt.Errorf("password authentication failed with code %d: %s", re.Code, re.Message)
+		return 0, gatewayAuthError("password authentication failed", re.Code)
 	}
-	log.DebugPrintf("Parsed psw: %+v", re)
 
 	if re.Data.Ticket == "" && re.Data.GraphCheckCodeEnable == 0 {
 		return 0, fmt.Errorf("password authentication succeeded without a ticket")
@@ -132,12 +125,14 @@ func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string
 	if re.Data.AntiReplayRand != "" {
 		s.antiReplayRand = re.Data.AntiReplayRand
 	}
-	log.DebugPrintf("After psw: nextService=%s antiReplayRand=%s", s.nextService, s.antiReplayRand)
 
 	return re.Data.GraphCheckCodeEnable, nil
 }
 
 func encryptPKCS1v15Chunks(pub *rsa.PublicKey, plaintext []byte) ([]byte, error) {
+	if pub == nil || pub.N == nil || pub.N.BitLen() < 512 || pub.N.BitLen() > 8192 || pub.E < 3 || pub.E > 1<<31-1 || len(plaintext) > 32768 {
+		return nil, fmt.Errorf("RSA input exceeds supported bounds")
+	}
 	maxChunkSize := pub.Size() - 11
 	if maxChunkSize <= 0 {
 		return nil, fmt.Errorf("RSA public key is too small")
@@ -158,18 +153,28 @@ func encryptPKCS1v15Chunks(pub *rsa.PublicKey, plaintext []byte) ([]byte, error)
 
 // encryptChallengeResponse encrypts a code as "<code>_<antiReplayRand>" via PKCS#1 v1.5, like the password.
 func (s *Session) encryptChallengeResponse(code string) (string, error) {
-	N, ok := new(big.Int).SetString(s.pubKey, 16)
-	if !ok {
-		return "", fmt.Errorf("invalid RSA public key modulus")
+	pub, err := s.rsaPublicKey()
+	if err != nil {
+		return "", err
 	}
-	E, err := strconv.Atoi(s.pubKeyExp)
-	if err != nil || E <= 0 {
-		return "", fmt.Errorf("invalid RSA public key exponent %q", s.pubKeyExp)
-	}
-	pub := &rsa.PublicKey{N: N, E: E}
 	cipherBytes, err := encryptPKCS1v15Chunks(pub, []byte(code+"_"+s.antiReplayRand))
 	if err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(cipherBytes), nil
+}
+
+func (s *Session) rsaPublicKey() (*rsa.PublicKey, error) {
+	if len(s.pubKey) > 2048 {
+		return nil, fmt.Errorf("RSA modulus exceeds size limit")
+	}
+	N, ok := new(big.Int).SetString(s.pubKey, 16)
+	if !ok || N.BitLen() < 512 || N.BitLen() > 8192 {
+		return nil, fmt.Errorf("invalid RSA public key modulus")
+	}
+	E, err := strconv.Atoi(s.pubKeyExp)
+	if err != nil || E < 3 || E > 1<<31-1 {
+		return nil, fmt.Errorf("invalid RSA public key exponent")
+	}
+	return &rsa.PublicKey{N: N, E: E}, nil
 }

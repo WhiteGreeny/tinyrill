@@ -3,8 +3,8 @@ package atrust
 import (
 	"context"
 	"io"
+	"net"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/mythologyli/zju-connect/client"
@@ -56,12 +56,15 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 		if len(nodes) > 0 {
 			var pingList []*ping.TCPing
 			var chList []<-chan struct{}
+			var probeNodes []string
 
 			for _, node := range nodes {
-				parts := strings.Split(node, ":")
-				host := parts[0]
-				port, err := strconv.Atoi(parts[1])
-				if err != nil {
+				host, portString, err := net.SplitHostPort(node)
+				if err != nil || host == "" {
+					continue
+				}
+				port, err := strconv.Atoi(portString)
+				if err != nil || port < 1 || port > 65535 {
 					continue
 				}
 
@@ -79,6 +82,7 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 				tcping.SetTarget(&target)
 
 				pingList = append(pingList, tcping)
+				probeNodes = append(probeNodes, node)
 				ch := tcping.StartWithContext(ctx)
 				chList = append(chList, ch)
 			}
@@ -93,7 +97,7 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 				result := tcping.Result()
 				score, reachable := nodeProbeScore(result)
 				if reachable && (bestScore == 0 || score < bestScore) {
-					bestNode = nodes[i]
+					bestNode = probeNodes[i]
 					bestScore = score
 				}
 			}

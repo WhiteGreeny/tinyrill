@@ -251,12 +251,24 @@ func (c *l3TunnelConn) Close() error {
 
 func (c *l3TunnelConn) readLoop() {
 	for {
+		interval := c.heartbeatInterval
+		if interval <= 0 {
+			interval = defaultHeartbeatInterval
+		}
+		limit := c.heartbeatMissLimit
+		if limit <= 0 {
+			limit = defaultHeartbeatMissLimit
+		}
+		_ = c.tlsConn.SetReadDeadline(time.Now().Add(interval * time.Duration(limit+1)))
 		fr, err := c.readFrame()
 		if err != nil {
 			log.DebugPrintf("l3-tunnel read frame failed: %v", err)
 			_ = c.Close()
 			return
 		}
+		// Only a response proves the peer is alive. Sending our own heartbeat
+		// must not reset the missed-response counter.
+		atomic.StoreInt32(&c.heartbeatMisses, 0)
 
 		switch fr.cmd {
 		case cmdDataResp:
@@ -338,25 +350,28 @@ func (c *l3TunnelConn) heartbeatLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			c.conntrackMgr.removeExpired()
-			if atomic.SwapUint32(&c.heartbeatHasWrite, 0) != 0 {
-				atomic.StoreInt32(&c.heartbeatMisses, 0)
-				continue
-			}
-			misses := atomic.LoadInt32(&c.heartbeatMisses)
-			if misses >= missLimit {
-				log.DebugPrintf("l3-tunnel heartbeat timed out after %d missed responses", misses)
-				_ = c.Close()
-				return
-			}
-			atomic.AddInt32(&c.heartbeatMisses, 1)
-			if !c.sendHeartbeat() {
+			if !c.heartbeatTick(missLimit) {
 				return
 			}
 		case <-c.closeCh:
 			return
 		}
 	}
+}
+
+func (c *l3TunnelConn) heartbeatTick(missLimit int32) bool {
+	c.conntrackMgr.removeExpired()
+	misses := atomic.LoadInt32(&c.heartbeatMisses)
+	if atomic.SwapUint32(&c.heartbeatHasWrite, 0) != 0 && misses == 0 {
+		return true
+	}
+	if misses >= missLimit {
+		log.DebugPrintf("l3-tunnel heartbeat timed out after %d missed responses", misses)
+		_ = c.Close()
+		return false
+	}
+	atomic.AddInt32(&c.heartbeatMisses, 1)
+	return c.sendHeartbeat()
 }
 
 func (c *l3TunnelConn) sendHeartbeat() bool {
@@ -557,7 +572,7 @@ func (c *l3TunnelConn) handleAuthResp(status byte, payload []byte) {
 			c.scheduleAuthRetry(authID, defaultAuthRetryWait)
 			return
 		}
-		c.completeAuthentication(authID, "", fmt.Errorf("auth status %d: %s", status, resp.Message))
+		c.completeAuthentication(authID, "", fmt.Errorf("auth status %d", status))
 		return
 	}
 
@@ -629,6 +644,7 @@ func (c *l3TunnelConn) writeFrame(data []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	logFrame("send", data)
+	_ = c.tlsConn.SetWriteDeadline(time.Now().Add(15 * time.Second))
 	n, err := c.tlsConn.Write(data)
 	if err == nil && n != len(data) {
 		return io.ErrShortWrite
@@ -949,7 +965,7 @@ func (c *l3TunnelConn) authTunnel() error {
 			return fmt.Errorf("%w: L3 tunnel code %d", auth.ErrSessionInvalid, resp.Code)
 		}
 		if resp.Code != 0 {
-			return fmt.Errorf("l3-tunnel tunnel auth failed: %d %s", resp.Code, resp.Message)
+			return fmt.Errorf("l3-tunnel tunnel auth failed: %d", resp.Code)
 		}
 	}
 	if status != 0 {

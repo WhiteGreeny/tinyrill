@@ -127,14 +127,13 @@ func (s *Session) submitTokenAt(service string, payload map[string]interface{}) 
 	if err != nil {
 		return authStep{}, err
 	}
-	log.DebugPrintf("Received token authentication: %s", string(body))
 
 	var result tokenResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return authStep{}, err
 	}
 	if result.Code != 0 {
-		return authStep{}, fmt.Errorf("token authentication failed with code %d: %s", result.Code, result.Message)
+		return authStep{}, gatewayAuthError("token authentication failed", result.Code)
 	}
 	return authStepFromData(result.Data), nil
 }
@@ -159,14 +158,13 @@ func (s *Session) accessCheck() (authStep, error) {
 	if err != nil {
 		return authStep{}, err
 	}
-	log.DebugPrintf("Received access check: %s", string(body))
 
 	var result tokenResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return authStep{}, err
 	}
 	if result.Code != 0 {
-		return authStep{}, fmt.Errorf("accessCheck failed with code %d: %s", result.Code, result.Message)
+		return authStep{}, gatewayAuthError("accessCheck failed", result.Code)
 	}
 	return authStepFromData(result.Data), nil
 }

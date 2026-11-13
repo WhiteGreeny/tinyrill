@@ -144,6 +144,9 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 		if fakeIPValue := ctx.Value(ContextKeyFakeIP); fakeIPValue != nil {
 			if domainResourceFound {
 				ip := r.IPPool.GenerateIP(host, domainResources)
+				if ip == nil {
+					return ctx, nil, ippool.ErrExhausted
+				}
 				log.Printf("%s -> %s (Fake IP)", host, ip.String())
 				return ctx, ip, nil
 			}

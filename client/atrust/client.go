@@ -63,9 +63,11 @@ type Client struct {
 	ConnectionID string
 	SignKey      string
 
-	sessionMu   sync.RWMutex
-	sessionErr  error
-	refreshDone chan struct{}
+	sessionMu     sync.RWMutex
+	sessionErr    error
+	refreshDone   chan struct{}
+	maintenanceMu sync.Mutex
+	authSession   *auth.Session
 
 	serverAddress   string
 	ipResources     []client.IPResource
@@ -122,8 +124,14 @@ func (c *Client) canResume(resourceData []byte) bool {
 func (c *Client) Close() {
 	c.closeOnce.Do(func() {
 		c.lifecycleCancel()
-		if c.refreshDone != nil {
-			<-c.refreshDone
+		c.maintenanceMu.Lock()
+		done, session := c.refreshDone, c.authSession
+		c.maintenanceMu.Unlock()
+		if done != nil {
+			<-done
+		}
+		if session != nil {
+			session.Close()
 		}
 		c.l3TunnelMu.Lock()
 		tunnel := c.l3Tunnel
@@ -272,7 +280,6 @@ func SetTrusted(serverAddress string, serverPort int, authData []byte, trusted b
 			return err
 		}
 	}
-	log.DebugPrintf("Given auth data: %+v", clientAuthData)
 
 	if clientAuthData.DeviceID == "" {
 		clientAuthData.DeviceID = strings.ToLower(randHex(32))
@@ -356,7 +363,6 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 			return nil, err
 		}
 	}
-	log.DebugPrintf("Given auth data: %+v", clientAuthData)
 	if clientAuthData.DeviceID == "" && c.DeviceID != "" {
 		clientAuthData.DeviceID = c.DeviceID
 	}
@@ -371,6 +377,14 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		authServerHost = fmt.Sprintf("%s:%d", options.ServerAddress, options.ServerPort)
 	}
 	sess := auth.NewSessionContext(setupCtx, authServerHost, c.tlsKeyLogWriter, c.underlayDialer.DialContext)
+	c.maintenanceMu.Lock()
+	if err := c.lifecycleCtx.Err(); err != nil {
+		c.maintenanceMu.Unlock()
+		sess.Close()
+		return nil, err
+	}
+	c.authSession = sess
+	c.maintenanceMu.Unlock()
 	sess.SetTLSConfig(c.tlsPolicy.Standard())
 	serverVersionInfo, manifestErr := sess.ServerVersionInfo()
 	serverVersionInfo, err := resolveServerVersionInfo(clientAuthData.ServerVersionInfo, serverVersionInfo, manifestErr)
@@ -449,8 +463,6 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 	if err != nil {
 		return nil, err
 	}
-
-	log.DebugPrintf("SID: %s, DeviceID: %s, ConnectionID: %s, SignKey: %s", c.SID, c.DeviceID, c.ConnectionID, c.SignKey)
 
 	c.BestNodes = getBestNodes(setupCtx, c.NodeGroups, c.underlayDialer.DialContext, c.tlsKeyLogWriter)
 	if err := setupCtx.Err(); err != nil {

@@ -23,7 +23,7 @@ func parseIPAuthResponse(data []byte) error {
 		if response.Code == 10000004 || response.Code == 75500002 {
 			return fmt.Errorf("%w: IP tunnel code %d", auth.ErrSessionInvalid, response.Code)
 		}
-		return fmt.Errorf("IP tunnel authentication failed (code %d): %s", response.Code, response.Message)
+		return fmt.Errorf("IP tunnel authentication failed (code %d)", response.Code)
 	}
 	return nil
 }

@@ -18,6 +18,8 @@ import (
 
 type L3Tunnel struct {
 	client *Client
+	// The runtime must close old proxy TCP connections before replacing a tunnel.
+	onConnectionLost func(error)
 
 	ip net.IP
 
@@ -50,6 +52,7 @@ const (
 
 func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
 	t := &L3Tunnel{
+		onConnectionLost:  aTrustClient.reportFailure,
 		client:            aTrustClient,
 		conns:             make(map[string]*l3TunnelConn),
 		connecting:        make(map[string]*l3TunnelConnectCall),
@@ -254,6 +257,15 @@ func (t *L3Tunnel) forwardFromConn(nodeGroupID string, conn *l3TunnelConn) {
 		pkt, err := conn.ReadPacket()
 		if err != nil {
 			t.evictConn(nodeGroupID, conn)
+			if t.onConnectionLost != nil {
+				select {
+				case <-t.closeCh:
+					return
+				default:
+				}
+				t.onConnectionLost(err)
+				return
+			}
 			t.startReconnect(nodeGroupID)
 			return
 		}
@@ -269,6 +281,15 @@ func (t *L3Tunnel) forwardFromConn(nodeGroupID string, conn *l3TunnelConn) {
 }
 
 func (t *L3Tunnel) startReconnect(nodeGroupID string) {
+	if t.onConnectionLost != nil {
+		select {
+		case <-t.closeCh:
+			return
+		default:
+		}
+		t.onConnectionLost(net.ErrClosed)
+		return
+	}
 	if t.client == nil || t.connect == nil {
 		return
 	}

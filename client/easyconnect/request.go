@@ -18,11 +18,12 @@ import (
 	"net/url"
 	"regexp"
 	"runtime"
-	"runtime/debug"
+
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/client/authchallenge"
 	"github.com/mythologyli/zju-connect/log"
 	"github.com/pquerna/otp/totp"
@@ -69,9 +70,9 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
-		debug.PrintStack()
+
 		return err
 	}
 
@@ -85,18 +86,20 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 		return err
 	}
 
-	log.DebugPrintln("Response:", buf.String())
-
 	vpnMatch := regexp.MustCompile(`<VPNVERSION>(.*)</VPNVERSION>`).FindSubmatch(buf.Bytes())
 	if vpnMatch != nil {
 		log.Printf("VPN server version: %s", string(vpnMatch[1]))
 	}
 
-	c.twfID = string(regexp.MustCompile(`<TwfID>(.*)</TwfID>`).FindSubmatch(buf.Bytes())[1])
-	log.Printf("TWFID: %s", c.twfID)
+	c.twfID, err = requiredLoginField(buf.Bytes(), "TwfID")
+	if err != nil {
+		return err
+	}
 
-	rsaKey := string(regexp.MustCompile(`<RSA_ENCRYPT_KEY>(.*)</RSA_ENCRYPT_KEY>`).FindSubmatch(buf.Bytes())[1])
-	log.Printf("RSA key: %s", rsaKey)
+	rsaKey, err := requiredLoginField(buf.Bytes(), "RSA_ENCRYPT_KEY")
+	if err != nil {
+		return err
+	}
 
 	rsaExpMatch := regexp.MustCompile(`<RSA_ENCRYPT_EXP>(.*)</RSA_ENCRYPT_EXP>`).FindSubmatch(buf.Bytes())
 	rsaExp := ""
@@ -106,7 +109,6 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 		log.Printf("Warning: No RSA_ENCRYPT_EXP, using default")
 		rsaExp = "65537"
 	}
-	log.Printf("RSA exp: %s", rsaExp)
 
 	csrfMatch := regexp.MustCompile(`<CSRF_RAND_CODE>(.*)</CSRF_RAND_CODE>`).FindSubmatch(buf.Bytes())
 	csrfCode := ""
@@ -119,16 +121,20 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 	}
 	if csrfMatch != nil {
 		csrfCode = string(csrfMatch[1])
-		log.Printf("CSRF Code: %s", csrfCode)
 		password += "_" + csrfCode
 	} else {
 		log.Printf("Warning: No CSRF rand code")
 	}
 
 	pubKey := rsa.PublicKey{}
-	pubKey.E, _ = strconv.Atoi(rsaExp)
+	pubKey.E, err = strconv.Atoi(rsaExp)
+	if err != nil || pubKey.E < 3 || pubKey.E > 1<<31-1 {
+		return errors.New("invalid EC RSA exponent")
+	}
 	modulus := big.Int{}
-	modulus.SetString(rsaKey, 16)
+	if _, ok := modulus.SetString(rsaKey, 16); !ok || modulus.BitLen() < 512 || modulus.BitLen() > 8192 {
+		return errors.New("invalid EC RSA modulus")
+	}
 	pubKey.N = &modulus
 
 	encryptedPassword, err := rsa.EncryptPKCS1v15(rand.Reader, &pubKey, []byte(password))
@@ -137,10 +143,10 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 	}
 	encryptedPasswordHex := hex.EncodeToString(encryptedPassword)
 
-	rndImgMatch := regexp.MustCompile(`<RndImg>(.*)</RndImg>`).FindSubmatch(buf.Bytes())[1]
+	rndImgMatch := regexp.MustCompile(`<RndImg>([^<]*)</RndImg>`).FindSubmatch(buf.Bytes())
 	rndImg := "0"
-	if rndImgMatch != nil {
-		rndImg = string(rndImgMatch)
+	if len(rndImgMatch) == 2 {
+		rndImg = string(rndImgMatch[1])
 	}
 
 	randCode := ""
@@ -154,7 +160,7 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 		req.Header.Set("Cookie", "TWFID="+c.twfID)
 		req.Header.Set("User-Agent", "EasyConnect_windows")
 
-		resp, err = c.httpClient.Do(req)
+		resp, err = c.do(req)
 		if err != nil {
 			return err
 		}
@@ -197,7 +203,7 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 	req.Header.Set("Cookie", "TWFID="+c.twfID)
 	req.Header.Set("User-Agent", "EasyConnect_windows")
 
-	resp, err = c.httpClient.Do(req)
+	resp, err = c.do(req)
 	if err != nil {
 		return err
 	}
@@ -232,17 +238,16 @@ func (c *Client) loginAuthAndPsw(graphCodeFile string) error {
 	if strings.Contains(buf.String(), "<NextAuth>-1</NextAuth>") || !strings.Contains(buf.String(), "<NextAuth>") {
 		log.Print("No NextAuth found")
 	} else {
-		return errors.New("Not implemented auth: " + buf.String())
+		return errors.New("unsupported EasyConnect authentication step")
 	}
 
 	if !strings.Contains(buf.String(), "<Result>1</Result>") {
-		return errors.New("Login failed: " + buf.String())
+		return client.ErrAuthenticationRejected
 	}
 
 	twfIDMatch := regexp.MustCompile(`<TwfID>(.*)</TwfID>`).FindSubmatch(buf.Bytes())
 	if twfIDMatch != nil {
 		c.twfID = string(twfIDMatch[1])
-		log.Printf("Update TWFID: %s", c.twfID)
 	}
 
 	log.Printf("TWFID has been authorized")
@@ -263,7 +268,7 @@ func (c *Client) loginSMS() error {
 	req.Header.Set("Cookie", "TWFID="+c.twfID)
 	req.Header.Set("User-Agent", "EasyConnect_windows")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return err
 	}
@@ -278,10 +283,8 @@ func (c *Client) loginSMS() error {
 		_ = Body.Close()
 	}(resp.Body)
 
-	log.DebugPrintf("SMS request response: %s", buf.String())
-
 	if !strings.Contains(buf.String(), "验证码已发送到您的手机") && !strings.Contains(buf.String(), "请输入验证码：") && !strings.Contains(buf.String(), "<USER_PHONE>") {
-		return errors.New("unexpected SMS response: " + buf.String())
+		return errors.New("unexpected EasyConnect SMS response")
 	}
 
 	log.Printf("SMS code is sent or still valid")
@@ -306,7 +309,7 @@ func (c *Client) loginSMS() error {
 	req.Header.Set("Cookie", "TWFID="+c.twfID)
 	req.Header.Set("User-Agent", "EasyConnect_windows")
 
-	resp, err = c.httpClient.Do(req)
+	resp, err = c.do(req)
 	if err != nil {
 		return err
 	}
@@ -320,17 +323,14 @@ func (c *Client) loginSMS() error {
 		_ = Body.Close()
 	}(resp.Body)
 
-	log.DebugPrintf("SMS verification response: %s", buf.String())
-
 	if !strings.Contains(buf.String(), "Auth sms suc") && !strings.Contains(buf.String(), "欢迎访问") {
-		debug.PrintStack()
-		return errors.New("SMS code verification failed: " + buf.String())
+
+		return fmt.Errorf("SMS verification: %w", client.ErrAuthenticationRejected)
 	}
 
 	twfIDMatch := regexp.MustCompile(`<TwfID>(.*)</TwfID>`).FindSubmatch(buf.Bytes())
 	if twfIDMatch != nil {
 		c.twfID = string(twfIDMatch[1])
-		log.Printf("Update TWFID: %s", c.twfID)
 	}
 	log.Print("SMS code verification success")
 
@@ -368,7 +368,7 @@ func (c *Client) loginTOTP() error {
 	req.Header.Set("Cookie", "TWFID="+c.twfID)
 	req.Header.Set("User-Agent", "EasyConnect_windows")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return err
 	}
@@ -384,11 +384,14 @@ func (c *Client) loginTOTP() error {
 	}(resp.Body)
 
 	if !strings.Contains(buf.String(), "Totp auth succ") {
-		debug.PrintStack()
-		return errors.New("TOTP verification failed: " + buf.String())
+
+		return fmt.Errorf("TOTP verification: %w", client.ErrAuthenticationRejected)
 	}
 
-	c.twfID = string(regexp.MustCompile(`<TwfID>(.*)</TwfID>`).FindSubmatch(buf.Bytes())[1])
+	c.twfID, err = requiredLoginField(buf.Bytes(), "TwfID")
+	if err != nil {
+		return err
+	}
 	log.Print("TOTP verification success")
 
 	return nil
@@ -404,7 +407,7 @@ func (c *Client) loginCert() error {
 	req.Header.Set("Cookie", "TWFID="+c.twfID)
 	req.Header.Set("User-Agent", "EasyConnect_windows")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return err
 	}
@@ -440,7 +443,7 @@ func (c *Client) loginCert() error {
 	req.Header.Set("Cookie", "TWFID="+c.twfID)
 	req.Header.Set("User-Agent", "EasyConnect_windows")
 
-	resp, err = c.httpClient.Do(req)
+	resp, err = c.do(req)
 	if err != nil {
 		return err
 	}
@@ -459,14 +462,13 @@ func (c *Client) loginCert() error {
 		strings.Contains(response, "Login successfully") ||
 		strings.Contains(response, "Auth cert suc")
 	if !certSuccess {
-		debug.PrintStack()
-		return errors.New("Cert verification failed: " + response)
+
+		return fmt.Errorf("certificate verification: %w", client.ErrAuthenticationRejected)
 	}
 
 	twfIDMatch := regexp.MustCompile(`<TwfID>(.*)</TwfID>`).FindSubmatch(buf.Bytes())
 	if twfIDMatch != nil {
 		c.twfID = string(twfIDMatch[1])
-		log.Printf("Update TWFID: %s", c.twfID)
 	}
 
 	if strings.Contains(response, "<pwpErrorCode>16</pwpErrorCode>") {
@@ -488,7 +490,7 @@ func (c *Client) requestConfig() (string, error) {
 	}
 	req.Header.Set("Cookie", "TWFID="+c.twfID)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return "", err
 	}
@@ -528,7 +530,7 @@ func (c *Client) requestUpdateSession(ctx context.Context) error {
 	req.Header.Set("Cookie", "TWFID="+c.twfID)
 	req.Header.Set("User-Agent", "EasyConnect_Linux_Ubuntu")
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return err
 	}
@@ -558,7 +560,7 @@ func (c *Client) requestUpdateSession(ctx context.Context) error {
 		return fmt.Errorf("update_session: parse reply: %w", err)
 	}
 	if reply.Message != "success" || reply.ErrorCode != "1" {
-		return fmt.Errorf("update_session: unexpected reply message=%q error_code=%q", reply.Message, reply.ErrorCode)
+		return errors.New("update_session: unexpected gateway response")
 	}
 	return nil
 }
@@ -573,7 +575,7 @@ func (c *Client) requestResources() (string, error) {
 	}
 	req.Header.Set("Cookie", "TWFID="+c.twfID)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		return "", err
 	}
@@ -628,7 +630,9 @@ func (c *Client) requestToken() error {
 	}
 
 	sessionID := hex.EncodeToString(conn.HandshakeState.ServerHello.SessionId)
-	log.Printf("Server session ID: %s", sessionID)
+	if len(sessionID) < 31 || len(c.twfID) != 16 {
+		return errors.New("invalid EC session identifier length")
+	}
 
 	buf := make([]byte, 8)
 	n, err := conn.Read(buf)
@@ -636,9 +640,8 @@ func (c *Client) requestToken() error {
 		return fmt.Errorf("ECAgent request invalid: read %d bytes: %w", n, err)
 	}
 
-	c.token = (*[48]byte)([]byte(sessionID[:31] + "\x00" + c.twfID))
-
-	log.Printf("Token: %s", hex.EncodeToString(c.token[:]))
+	c.token = new([48]byte)
+	copy(c.token[:], sessionID[:31]+"\x00"+c.twfID)
 
 	return nil
 }

@@ -707,79 +707,45 @@ func TestHeartbeatWaitsForFirstInterval(t *testing.T) {
 	_ = conn.Close()
 }
 
-func TestHeartbeatSuccessfulCommandWriteSuppressesProbe(t *testing.T) {
+func TestCommandWritesDoNotMaskMissingHeartbeatResponses(t *testing.T) {
 	transport := &trackingNetConn{closed: make(chan struct{})}
-	written := make(chan []byte, 2)
+	probes := 0
 	conn := &l3TunnelConn{
-		tlsConn:            tls.Client(transport, &tls.Config{InsecureSkipVerify: true}),
-		closeCh:            make(chan struct{}),
-		conntrackMgr:       newConntrackMgr(),
-		heartbeatInterval:  40 * time.Millisecond,
-		heartbeatMissLimit: 2,
+		tlsConn: tls.Client(transport, &tls.Config{InsecureSkipVerify: true}), closeCh: make(chan struct{}), conntrackMgr: newConntrackMgr(),
 		writeFrameHook: func(frame []byte) error {
-			written <- append([]byte(nil), frame...)
+			if frame[1] == cmdHeartbeatReq {
+				probes++
+			}
 			return nil
 		},
 	}
-	atomic.StoreInt32(&conn.heartbeatMisses, 1)
+	defer conn.Close()
+	// Initial application traffic may defer a probe until the next idle tick.
 	if err := conn.writeFrame([]byte{l3Version, cmdDataReq}); err != nil {
 		t.Fatal(err)
 	}
-	<-written
-	go conn.heartbeatLoop()
-
-	time.Sleep(60 * time.Millisecond)
-	if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 0 {
-		t.Fatalf("heartbeat misses = %d, want command activity to clear misses", misses)
+	if !conn.heartbeatTick(2) || probes != 0 {
+		t.Fatal("recent application write did not defer the idle probe")
+	}
+	if !conn.heartbeatTick(2) || probes != 1 {
+		t.Fatal("first idle tick did not probe")
+	}
+	// More successful writes do not acknowledge a missing server response.
+	if err := conn.writeFrame([]byte{l3Version, cmdDataReq}); err != nil {
+		t.Fatal(err)
+	}
+	if !conn.heartbeatTick(2) || probes != 2 {
+		t.Fatal("outgoing data masked the unanswered probe")
+	}
+	if conn.heartbeatTick(2) {
+		t.Fatal("unresponsive peer was kept alive indefinitely")
 	}
 	select {
-	case frame := <-written:
-		t.Fatalf("heartbeat sent despite command activity: % X", frame)
+	case <-conn.closeCh:
 	default:
+		t.Fatal("timed out connection stayed open")
 	}
-	_ = conn.Close()
 }
-
-func TestSuccessfulHeartbeatWriteClearsMissesOnNextTick(t *testing.T) {
-	transport := &trackingNetConn{closed: make(chan struct{})}
-	written := make(chan []byte, 2)
-	conn := &l3TunnelConn{
-		tlsConn:            tls.Client(transport, &tls.Config{InsecureSkipVerify: true}),
-		closeCh:            make(chan struct{}),
-		conntrackMgr:       newConntrackMgr(),
-		heartbeatInterval:  30 * time.Millisecond,
-		heartbeatMissLimit: 2,
-		writeFrameHook: func(frame []byte) error {
-			written <- append([]byte(nil), frame...)
-			return nil
-		},
-	}
-	go conn.heartbeatLoop()
-
-	select {
-	case frame := <-written:
-		if !bytes.Equal(frame, []byte{l3Version, cmdHeartbeatReq, 0x00, 0x00}) {
-			t.Fatalf("first idle frame = % X, want heartbeat", frame)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("idle heartbeat was not sent")
-	}
-	if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 1 {
-		t.Fatalf("misses after heartbeat = %d, want 1", misses)
-	}
-
-	time.Sleep(45 * time.Millisecond)
-	if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 0 {
-		t.Fatalf("misses after successful heartbeat activity = %d, want 0", misses)
-	}
-	select {
-	case frame := <-written:
-		t.Fatalf("next tick sent a heartbeat instead of consuming hasWrite: % X", frame)
-	default:
-	}
-	_ = conn.Close()
-}
-
 func TestFailedCommandWriteDoesNotSetHeartbeatActivity(t *testing.T) {
 	conn := &l3TunnelConn{writeFrameHook: func([]byte) error { return io.ErrClosedPipe }}
 	if err := conn.writeFrame([]byte{l3Version, cmdDataReq}); !errors.Is(err, io.ErrClosedPipe) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/client/authchallenge"
+	"github.com/mythologyli/zju-connect/internal/bounded"
 	"github.com/mythologyli/zju-connect/internal/tlspolicy"
 	"github.com/mythologyli/zju-connect/log"
 	"inet.af/netaddr"
@@ -52,6 +54,7 @@ type Options struct {
 }
 
 type Client struct {
+	failures          chan error
 	passwordProvider  func(context.Context) (string, error)
 	tlsPolicy         *tlspolicy.Policy
 	allowLegacyTLS    bool
@@ -103,6 +106,7 @@ func NewClient(options Options) *Client {
 		challengeHandler = authchallenge.UnsupportedHandler{}
 	}
 	c := &Client{
+		failures:          make(chan error, 1),
 		passwordProvider:  options.Auth.PasswordProvider,
 		tlsPolicy:         options.TLSPolicy,
 		allowLegacyTLS:    options.AllowLegacyTLS,
@@ -125,6 +129,7 @@ func NewClient(options Options) *Client {
 		challengeHandler:  challengeHandler,
 	}
 	c.setHTTPTransport(&tls.Config{})
+	c.httpClient.CheckRedirect = bounded.AuthRedirect
 	return c
 }
 
@@ -259,12 +264,12 @@ func (c *Client) SetupContext(ctx context.Context) error {
 	if c.parseResource {
 		resources, err := c.requestResources()
 		if err != nil {
-			log.Printf("Error occurred while requesting resources: %v", err)
+			return fmt.Errorf("request resources: %w", err)
 		} else {
 			// Parse the resources
 			err = c.parseResources(resources)
 			if err != nil {
-				log.Printf("Error occurred while parsing resources: %v", err)
+				return fmt.Errorf("parse resources: %w", err)
 			}
 		}
 	}
@@ -366,6 +371,7 @@ func (c *Client) sessionKeepAliveLoop() {
 }
 
 func (c *Client) runSessionKeepAlive(ticks <-chan time.Time, requestTimeout time.Duration) {
+	failures := 0
 	for {
 		select {
 		case <-c.lifecycleCtx.Done():
@@ -380,7 +386,20 @@ func (c *Client) runSessionKeepAlive(ticks <-chan time.Time, requestTimeout time
 					return
 				}
 				log.Printf("update_session keepalive failed: %v", err)
+				failures++
+				if failures >= 3 {
+					select {
+					case c.failures <- err:
+					default:
+					}
+					c.lifecycleCancel()
+					return
+				}
+			} else {
+				failures = 0
 			}
 		}
 	}
 }
+
+func (c *Client) Errors() <-chan error { return c.failures }

@@ -172,7 +172,7 @@ func parseTCPTunnelAuthResponse(data string) error {
 		if response.Code == 10000004 || response.Code == 75500002 {
 			return fmt.Errorf("%w: TCP tunnel code %d", auth.ErrSessionInvalid, response.Code)
 		}
-		return fmt.Errorf("tcp tunnel authentication failed (code %d): %s", response.Code, response.Message)
+		return fmt.Errorf("tcp tunnel authentication failed (code %d)", response.Code)
 	}
 	return nil
 }

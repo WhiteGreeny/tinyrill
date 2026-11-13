@@ -12,11 +12,11 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/client/authchallenge"
+	"github.com/mythologyli/zju-connect/internal/bounded"
 	"github.com/mythologyli/zju-connect/log"
 )
 
@@ -133,7 +133,7 @@ func NewSessionContext(ctx context.Context, server string, tlsKeyLogWriter io.Wr
 		tr.DialContext = dialContext[0]
 	}
 	jar, _ := cookiejar.New(nil)
-	httpClient := &http.Client{Transport: tr, Jar: jar, Timeout: 20 * time.Second}
+	httpClient := &http.Client{Transport: tr, Jar: jar, Timeout: 20 * time.Second, CheckRedirect: bounded.AuthRedirect}
 
 	return &Session{
 		ctx:      ctx,
@@ -151,6 +151,11 @@ func (s *Session) request(req *http.Request) (*http.Response, error) {
 
 	resp, err := s.client.Do(req.WithContext(ctx))
 	if err != nil {
+		stop()
+		cancel()
+		return nil, bounded.TransportError(err)
+	}
+	if err := bounded.BufferResponse(resp); err != nil {
 		stop()
 		cancel()
 		return nil, err
@@ -249,8 +254,6 @@ func (s *Session) withGraphCheckCode(process func(string) (int, error), graphCod
 			return fmt.Errorf("encode aTrust captcha response: %w", err)
 		}
 
-		log.DebugPrintf("graphCheckCode submitted: %s", graphCheckCode)
-
 		graphCheckCodeEnable, err = process(graphCheckCode)
 		if err != nil {
 			return err
@@ -331,7 +334,9 @@ func (s *Session) completeSMS(step authStep) (authStep, error) {
 	if err != nil {
 		log.Printf("Warning: failed to get phone number: %v", err)
 	} else if len(phoneNumbers) > 0 {
-		log.Printf("Phone number: %s", strings.Join(phoneNumbers, ", "))
+		for _, phone := range phoneNumbers {
+			log.Printf("SMS phone: %s", authchallenge.MaskPhone(phone))
+		}
 	}
 
 	if err := s.authSms(step); err != nil {
@@ -396,7 +401,6 @@ func (s *Session) Login(method LoginMethod, opts LoginOptions) (LoginResult, err
 		}
 	}
 	if foundAuthInfo == nil {
-		log.Printf("Available authentication methods: %+v", authInfoList)
 		return LoginResult{}, fmt.Errorf("auth type/login domain combination not found: auth type: %s, login domain: %s", method.AuthType(), method.LoginDomain())
 	}
 

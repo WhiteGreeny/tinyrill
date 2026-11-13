@@ -42,14 +42,13 @@ func TestNewSessionContextCancelsRequest(t *testing.T) {
 	}
 }
 
-// Callers read the response body after the call returns, so binding the request
-// to the session context must not tear down the body the moment it returns.
+// The bounded response is fully read before return and remains readable after
+// the network request has completed.
 func TestRequestKeepsBodyReadableAfterReturn(t *testing.T) {
 	const head, tail = `{"code":0,`, `"data":{}}`
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	unblock := func() { releaseOnce.Do(func() { close(release) }) }
-	defer unblock()
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -59,6 +58,7 @@ func TestRequestKeepsBodyReadableAfterReturn(t *testing.T) {
 		_, _ = io.WriteString(w, tail)
 	}))
 	defer server.Close()
+	defer unblock()
 
 	session := newTLSTestSession(server)
 	req, err := http.NewRequestWithContext(
@@ -67,12 +67,24 @@ func TestRequestKeepsBodyReadableAfterReturn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := session.request(req)
+	type result struct {
+		resp *http.Response
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() { resp, err := session.request(req); done <- result{resp, err} }()
+	select {
+	case <-done:
+		t.Fatal("request returned an incomplete body")
+	case <-time.After(25 * time.Millisecond):
+	}
+	unblock()
+	got := <-done
+	resp, err := got.resp, got.err
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
 
-	unblock()
 	body, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	if err != nil {

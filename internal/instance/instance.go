@@ -139,8 +139,9 @@ func Run(ctx context.Context, p configs.Profile, material Material, ui Frontend)
 				err = connection.wait(ctx)
 			}
 		}
+		err = connection.failureCause(err)
 		connection.close()
-		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		if ctx.Err() != nil {
 			emit("stopping", "")
 			return nil
 		}
@@ -304,6 +305,17 @@ func (o *owner) wait(ctx context.Context) error {
 	case err := <-stackErrors:
 		return err
 	}
+}
+
+func (o *owner) failureCause(fallback error) error {
+	if source, ok := o.client.(interface{ Errors() <-chan error }); ok {
+		select {
+		case err := <-source.Errors():
+			return err
+		default:
+		}
+	}
+	return fallback
 }
 func (o *owner) close() {
 	if o.proxies != nil {

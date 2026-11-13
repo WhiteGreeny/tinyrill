@@ -30,6 +30,9 @@ func (s *Session) completeCustomSMS() (authStep, error) {
 }
 
 func (s *Session) sendCustomSMS() error {
+	if err := authchallenge.CheckInteraction(s.challengeHandler, "sms"); err != nil {
+		return err
+	}
 	log.Println("Perform POST /passport/v1/auth/customSms")
 
 	payload := struct {
@@ -64,7 +67,6 @@ func (s *Session) sendCustomSMS() error {
 	if err != nil {
 		return err
 	}
-	log.DebugPrintf("Received custom SMS send response: %s", string(body))
 
 	var result struct {
 		Code    int    `json:"code"`
@@ -77,10 +79,9 @@ func (s *Session) sendCustomSMS() error {
 		return err
 	}
 	if result.Code != 0 {
-		return fmt.Errorf("sendCustomSMS failed with code %d: %s", result.Code, result.Message)
+		return gatewayAuthError("sendCustomSMS failed", result.Code)
 	}
 
-	log.Printf("%s: %s", result.Message, result.Data.Tips)
 	return nil
 }
 
@@ -128,7 +129,6 @@ func (s *Session) customSMSCheckCode(code string, skipSecondaryAuth bool) (authS
 	if err != nil {
 		return authStep{}, err
 	}
-	log.DebugPrintf("Received custom SMS check response: %s", string(body))
 
 	var result struct {
 		Code    int          `json:"code"`
@@ -139,7 +139,7 @@ func (s *Session) customSMSCheckCode(code string, skipSecondaryAuth bool) (authS
 		return authStep{}, err
 	}
 	if result.Code != 0 {
-		return authStep{}, fmt.Errorf("customSMSCheckCode failed with code %d: %s", result.Code, result.Message)
+		return authStep{}, gatewayAuthError("customSMSCheckCode failed", result.Code)
 	}
 
 	return authStepFromData(result.Data), nil

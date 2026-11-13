@@ -39,7 +39,7 @@ func graphCheckCodeFromResponse(response authchallenge.ClickCaptchaResponse, img
 }
 
 func isValidCoordinates(coordinates [][]int) bool {
-	if len(coordinates) == 0 {
+	if len(coordinates) == 0 || len(coordinates) > 16 {
 		return false
 	}
 	for _, pair := range coordinates {
@@ -51,14 +51,14 @@ func isValidCoordinates(coordinates [][]int) bool {
 }
 
 func decodeImageSize(imgData []byte) (int, int, error) {
-	if len(imgData) == 0 {
+	if len(imgData) == 0 || len(imgData) > 2<<20 {
 		return 0, 0, fmt.Errorf("empty image data")
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(imgData))
 	if err != nil {
 		return 0, 0, err
 	}
-	if cfg.Width <= 0 || cfg.Height <= 0 {
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > 4096 || cfg.Height > 4096 || cfg.Width*cfg.Height > 4<<20 {
 		return 0, 0, fmt.Errorf("invalid image dimensions: %dx%d", cfg.Width, cfg.Height)
 	}
 	return cfg.Width, cfg.Height, nil
@@ -68,8 +68,13 @@ func marshalGraphCheckCode(payload graphCheckCodePayload) (string, error) {
 	if !isValidCoordinates(payload.Coordinates) {
 		return "", fmt.Errorf("invalid coordinates")
 	}
-	if payload.Width <= 0 || payload.Height <= 0 {
+	if payload.Width <= 0 || payload.Height <= 0 || payload.Width > 4096 || payload.Height > 4096 || payload.Width*payload.Height > 4<<20 {
 		return "", fmt.Errorf("invalid dimensions: %dx%d", payload.Width, payload.Height)
+	}
+	for _, pair := range payload.Coordinates {
+		if pair[0] < 0 || pair[1] < 0 || pair[0] >= payload.Width || pair[1] >= payload.Height {
+			return "", fmt.Errorf("captcha point is outside image")
+		}
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

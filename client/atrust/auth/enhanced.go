@@ -56,14 +56,13 @@ func (s *Session) requestAuthStep(method string, step authStep, body []byte) (au
 	if err != nil {
 		return authStep{}, err
 	}
-	log.DebugPrintf("Received %s: %s", step.Service, string(responseBody))
 
 	var result tokenResponse
 	if err := json.Unmarshal(responseBody, &result); err != nil {
 		return authStep{}, err
 	}
 	if result.Code != 0 {
-		return authStep{}, fmt.Errorf("%s failed with code %d: %s", step.Service, result.Code, result.Message)
+		return authStep{}, gatewayAuthError(step.Service, result.Code)
 	}
 	return authStepFromData(result.Data), nil
 }

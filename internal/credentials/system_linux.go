@@ -3,7 +3,10 @@ package credentials
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/godbus/dbus/v5"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -25,7 +28,17 @@ type secretConnection struct {
 }
 
 func openSecretService(ctx context.Context) (*secretConnection, error) {
-	c, err := dbus.ConnectSessionBus()
+	address := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
+	if address == "" {
+		address = fmt.Sprintf("unix:path=/run/user/%d/bus", os.Getuid())
+	}
+	// Secret Service's plain session is only permitted on a local Unix bus.
+	for _, part := range strings.Split(address, ";") {
+		if !strings.HasPrefix(part, "unix:") {
+			return nil, ErrUnavailable
+		}
+	}
+	c, err := dbus.Connect(address, dbus.WithContext(ctx))
 	if err != nil {
 		return nil, ErrUnavailable
 	}

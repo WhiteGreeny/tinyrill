@@ -138,6 +138,9 @@ func runCLI(ctx context.Context, args []string, out, diagnostic io.Writer) int {
 	}
 	material, err := loadMaterial(ctx, p, diagnostic)
 	if err != nil {
+		if errors.Is(err, terminal.ErrInteractionRequired) {
+			return cliError(diagnostic, 3, err)
+		}
 		return cliError(diagnostic, 2, err)
 	}
 	frontend := &instance.CLIFrontend{Profile: p, Output: out, Diagnostic: diagnostic}
@@ -154,7 +157,7 @@ func runCLI(ctx context.Context, args []string, out, diagnostic io.Writer) int {
 }
 
 func cliError(output io.Writer, code int, err error) int {
-	fmt.Fprintln(output, terminal.SafeText(err.Error()))
+	fmt.Fprintln(output, terminal.SafeText(log.Redact(err.Error())))
 	return code
 }
 func promptFor(p configs.Profile, output io.Writer) credentials.Prompt {

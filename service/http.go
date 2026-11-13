@@ -11,6 +11,7 @@ import (
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/dial"
 
+	"github.com/mythologyli/zju-connect/internal/bounded"
 	"github.com/mythologyli/zju-connect/log"
 )
 
@@ -107,13 +108,13 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		log.DebugPrintf("HTTP proxy upstream request failed: %s %s: %v", req.Method, req.URL.String(), err)
+		log.DebugPrintf("HTTP proxy upstream request failed: %s %s: %v", req.Method, req.URL.Host, bounded.TransportError(err))
 		w.WriteHeader(500)
-		_, _ = w.Write([]byte(err.Error() + "\n"))
+		_, _ = w.Write([]byte("VPN request failed\n"))
 		return
 	}
 	defer resp.Body.Close()
-	log.DebugPrintf("HTTP proxy upstream response: %s %s: %s", req.Method, req.URL.String(), resp.Status)
+	log.DebugPrintf("HTTP proxy upstream response: %s %s: %s", req.Method, req.URL.Host, resp.Status)
 
 	hdr := w.Header()
 	removeHopHeaders(resp.Header)
@@ -125,10 +126,10 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	written, err := io.Copy(w, resp.Body)
 	if err != nil {
-		log.DebugPrintf("HTTP proxy response relay failed after %d bytes: %s %s: %v", written, req.Method, req.URL.String(), err)
+		log.DebugPrintf("HTTP proxy response relay failed after %d bytes: %s %s: %v", written, req.Method, req.URL.Host, bounded.TransportError(err))
 		return
 	}
-	log.DebugPrintf("HTTP proxy response relayed: %s %s: %d bytes", req.Method, req.URL.String(), written)
+	log.DebugPrintf("HTTP proxy response relayed: %s %s: %d bytes", req.Method, req.URL.Host, written)
 }
 
 func (p *httpProxy) handleConnect(w http.ResponseWriter, req *http.Request) {
@@ -137,7 +138,7 @@ func (p *httpProxy) handleConnect(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		log.DebugPrintf("HTTP proxy CONNECT dial failed: %s: %v", req.Host, err)
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(err.Error() + "\n"))
+		_, _ = w.Write([]byte("VPN request failed\n"))
 		return
 	}
 

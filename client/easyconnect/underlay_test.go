@@ -222,3 +222,30 @@ func newTestUnderlay(t *testing.T, options underlay.Options) *underlay.Dialer {
 	t.Cleanup(func() { _ = dialer.Close() })
 	return dialer
 }
+
+func TestKeepAliveReportsRepeatedFailure(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) }))
+	defer server.Close()
+	c := NewClient(Options{Server: strings.TrimPrefix(server.URL, "https://"), SessionID: "session-id"})
+	c.httpClient = server.Client()
+	defer c.Close()
+	ticks := make(chan time.Time, 3)
+	for i := 0; i < 3; i++ {
+		ticks <- time.Now()
+	}
+	done := make(chan struct{})
+	go func() { c.runSessionKeepAlive(ticks, time.Second); close(done) }()
+	select {
+	case err := <-c.Errors():
+		if err == nil {
+			t.Fatal("missing failure")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("failure not reported")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("keepalive did not stop")
+	}
+}

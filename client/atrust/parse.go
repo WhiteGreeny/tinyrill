@@ -2,11 +2,13 @@ package atrust
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"strconv"
 	"strings"
 
 	"github.com/mythologyli/zju-connect/client"
+	"github.com/mythologyli/zju-connect/internal/bounded"
 	"github.com/mythologyli/zju-connect/internal/ipresource"
 	"github.com/mythologyli/zju-connect/log"
 	"inet.af/netaddr"
@@ -87,6 +89,9 @@ func resourceAddrPretend(value any) bool {
 }
 
 func (c *Client) parseResource(resource []byte) error {
+	if len(resource) > bounded.MaxResponse {
+		return bounded.ErrTooLarge
+	}
 	log.Println("Parsing resource...")
 
 	var clientResource ClientResource
@@ -99,6 +104,7 @@ func (c *Client) parseResource(resource []byte) error {
 	c.ipResources = make([]client.IPResource, 0)
 	c.domainResources = make(client.DomainResources)
 	c.dnsResource = make(map[string][]net.IP)
+	resourceCount := 0
 
 	for _, app := range clientResource.Data.AppList.Data.AppInfo {
 		for _, appItem := range app.Apps {
@@ -107,6 +113,10 @@ func (c *Client) parseResource(resource []byte) error {
 				continue
 			}
 			for _, address := range appItem.AddressList {
+				resourceCount++
+				if resourceCount > 16384 || len(address.IP) > 1024 {
+					return errors.New("too many gateway resources")
+				}
 				if address.Protocol == "tcp" || address.Protocol == "udp" || address.Protocol == "all" {
 					// Handle port
 					portStr := address.Port
@@ -138,6 +148,9 @@ func (c *Client) parseResource(resource []byte) error {
 						portMax = portMin // Single port means min and max are the same
 					}
 
+					if portMin < 0 || portMax > 65535 || portMin > portMax {
+						continue
+					}
 					// Handle host
 					hostStr := address.Host
 					isDomain := false
@@ -290,7 +303,13 @@ func (c *Client) parseResource(resource []byte) error {
 	}
 	c.MajorNodeGroup = clientResource.Data.AppList.Data.Config.NodeGroupConf.MajorNodeGroup.ID
 	c.NodeGroups = make(map[string]NodeGroup)
+	if len(clientResource.Data.AppList.Data.Config.NodeGroupConf.NodeGroupList) > 256 {
+		return errors.New("too many gateway node groups")
+	}
 	for _, nodeGroup := range clientResource.Data.AppList.Data.Config.NodeGroupConf.NodeGroupList {
+		if len(nodeGroup.AddressInfo) > 64 {
+			return errors.New("too many gateway nodes")
+		}
 		addresses := NodeGroup{}
 		for _, addressInfo := range nodeGroup.AddressInfo {
 			address := addressInfo.Address
@@ -329,7 +348,10 @@ func (c *Client) parseResource(resource []byte) error {
 		)
 	}
 
-	c.ipSet, _ = ipSetBuilder.IPSet()
+	c.ipSet, err = ipSetBuilder.IPSet()
+	if err != nil {
+		return errors.New("invalid gateway resource ranges")
+	}
 	c.resourceIndex = ipresource.New(c.ipResources)
 
 	return nil

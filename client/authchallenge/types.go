@@ -7,6 +7,14 @@ import (
 
 type CodeKind string
 
+func MaskPhone(phone string) string {
+	runes := []rune(phone)
+	if len(runes) <= 4 {
+		return "***"
+	}
+	return "***" + string(runes[len(runes)-4:])
+}
+
 const (
 	CodeSMS    CodeKind = "sms"
 	CodeTOTP   CodeKind = "totp"

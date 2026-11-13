@@ -41,7 +41,6 @@ func (s *Session) ServerVersionInfo() ([]byte, error) {
 	if _, err := ParseServerVersionInfo(body); err != nil {
 		return nil, err
 	}
-	log.DebugPrintf("Received server manifest: %s", string(body))
 	return body, nil
 }
 
@@ -90,7 +89,6 @@ func (s *Session) authConfigContext(ctx context.Context, mod, needTicket, refres
 	if err != nil {
 		return 0, nil, err
 	}
-	log.DebugPrintf("Received auth config: %s", string(body))
 
 	var re struct {
 		Code *int `json:"code"`
@@ -262,7 +260,6 @@ func (s *Session) reportEnv() error {
 		},
 	}
 	body, _ := json.Marshal(payload)
-	log.DebugPrintf("Sending report env: %s", string(body))
 	req, _ := http.NewRequest("POST", u+"?"+WithSharedParams(nil).Encode(), bytes.NewReader(body))
 	req.Header.Set("User-Agent", UserAgent)
 	req.Header.Set("Content-Type", "application/json;charset=utf-8")
@@ -278,7 +275,6 @@ func (s *Session) reportEnv() error {
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ = io.ReadAll(resp.Body)
-	log.DebugPrintf("Received report env: %s", string(body))
 
 	var re struct {
 		Code int `json:"code"`
@@ -288,10 +284,8 @@ func (s *Session) reportEnv() error {
 	if err != nil {
 		return err
 	}
-	log.DebugPrintf("Parsed report env: %+v", re)
 
 	if re.Code != 0 {
-		log.Printf("reportEnv failed with code %d: %s", re.Code, string(body))
 		return fmt.Errorf("reportEnv failed with code %d", re.Code)
 	}
 
@@ -393,7 +387,6 @@ func (s *Session) authCheck() (authStep, error) {
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received auth check: %s", string(body))
 
 	var ac struct {
 		Code    int          `json:"code"`
@@ -404,10 +397,9 @@ func (s *Session) authCheck() (authStep, error) {
 	if err != nil {
 		return authStep{}, err
 	}
-	log.DebugPrintf("Parsed auth check: %+v", ac)
 
 	if ac.Code != 0 {
-		return authStep{}, fmt.Errorf("authCheck failed with code %d: %s", ac.Code, ac.Message)
+		return authStep{}, gatewayAuthError("authCheck failed", ac.Code)
 	}
 
 	return authStepFromData(ac.Data), nil
@@ -447,7 +439,7 @@ func (s *Session) phoneNumber(authID string) ([]string, error) {
 		return nil, err
 	}
 	if re.Code != 0 {
-		return nil, fmt.Errorf("phoneNumber failed with code %d: %s", re.Code, re.Message)
+		return nil, gatewayAuthError("phoneNumber failed", re.Code)
 	}
 
 	phoneNumbers, err := parsePhoneNumbers(re.Data.PhoneNumber)
@@ -519,7 +511,6 @@ func (s *Session) authSms(step authStep) error {
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received send sms: %s", string(body))
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -532,14 +523,10 @@ func (s *Session) authSms(step authStep) error {
 	if err != nil {
 		return err
 	}
-	log.DebugPrintf("Parsed send sms: %+v", re)
 
 	if re.Code != 0 && re.Code != 75500401 {
-		log.Printf("authSms failed with code %d: %s", re.Code, re.Message)
-		return fmt.Errorf("authSms failed with code %d: %s", re.Code, re.Message)
+		return gatewayAuthError("authSms failed", re.Code)
 	}
-
-	log.Printf("%s: %s", re.Message, re.Data.Tips)
 
 	return nil
 }
@@ -608,7 +595,6 @@ func (s *Session) secondarySMSCheckCodeImpl(step authStep, code string, skipSeco
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received sms check: %s", string(body))
 
 	var re struct {
 		Code    int          `json:"code"`
@@ -619,11 +605,9 @@ func (s *Session) secondarySMSCheckCodeImpl(step authStep, code string, skipSeco
 	if err != nil {
 		return authStep{}, err
 	}
-	log.DebugPrintf("Parsed sms check: %+v", re)
 
 	if re.Code != 0 {
-		log.Printf("smsCheckCode failed with code %d: %s", re.Code, string(body))
-		return authStep{}, fmt.Errorf("smsCheckCode failed with code %d: %s", re.Code, re.Message)
+		return authStep{}, gatewayAuthError("smsCheckCode failed", re.Code)
 	}
 
 	return authStepFromData(re.Data), nil
@@ -646,7 +630,6 @@ func (s *Session) onlineInfo() (string, error) {
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received online info: %s", string(body))
 
 	var re struct {
 		Code int `json:"code"`
@@ -659,10 +642,8 @@ func (s *Session) onlineInfo() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	log.DebugPrintf("Parsed online info: %+v", re)
 
 	if re.Code != 0 {
-		log.Printf("onlineInfo failed with code %d: %s", re.Code, string(body))
 		return "", fmt.Errorf("onlineInfo failed with code %d", re.Code)
 	}
 
@@ -699,7 +680,6 @@ func (s *Session) ClientResource() ([]byte, error) {
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received client resource: %s", string(body))
 
 	return body, nil
 }
@@ -733,7 +713,6 @@ func parsePortalTicketFromRedirect(redirectLocation, baseHost string) (string, e
 	if err != nil {
 		return "", err
 	}
-	log.DebugPrintf("Received redirect: %s", redirectURL.String())
 	if redirectURL.Scheme != "https" {
 		return "", fmt.Errorf("invalid redirect url: scheme not https")
 	}
@@ -754,7 +733,6 @@ func parsePortalTicketFromRedirect(redirectLocation, baseHost string) (string, e
 	if err := json.Unmarshal([]byte(queries.Get("data")), &tk); err != nil {
 		return "", err
 	}
-	log.DebugPrintf("Parsed portal data: %+v", tk)
 	if tk.Ticket == "" {
 		return "", fmt.Errorf("invalid portal data: ticket not found")
 	}

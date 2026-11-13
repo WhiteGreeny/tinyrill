@@ -3,7 +3,9 @@ package auth
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"fmt"
+	"github.com/mythologyli/zju-connect/client"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -57,7 +59,7 @@ func TestPswImplReturnsAuthenticationError(t *testing.T) {
 	session.antiReplayRand = "nonce"
 
 	_, err = session.pswImpl("user", "password", "domain", "")
-	if err == nil || !strings.Contains(err.Error(), "401: invalid credentials") {
+	if !errors.Is(err, client.ErrAuthenticationRejected) || !strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "invalid credentials") {
 		t.Fatalf("expected authentication error, got %v", err)
 	}
 }

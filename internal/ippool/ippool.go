@@ -7,6 +7,10 @@ import (
 	"sync"
 )
 
+var ErrExhausted = errors.New("instance domain mapping capacity exhausted")
+
+const maxMappings = 65536
+
 type entry[T any] struct {
 	ipUint   uint32
 	domain   string
@@ -29,6 +33,9 @@ func NewIPPool[T any](cidr string) (*IPPool[T], error) {
 	}
 
 	ones, bits := ipNet.Mask.Size()
+	if bits != 32 || ones < 1 || ones > 30 {
+		return nil, errors.New("IPv4 pool prefix must be between /1 and /30")
+	}
 	numIPs := uint32(1 << (bits - ones))
 	minIP := binary.BigEndian.Uint32(ipNet.IP)
 
@@ -50,6 +57,9 @@ func (p *IPPool[T]) SetIPDomain(ip net.IP, domain string, res T) error {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if len(p.domainToIP) >= maxMappings && p.domainToIP[domain] == nil {
+		return ErrExhausted
+	}
 
 	newEntry := &entry[T]{
 		ipUint:   ipUint,
@@ -71,8 +81,8 @@ func (p *IPPool[T]) GenerateIP(domain string, res T) net.IP {
 		return uint32ToIP(e.ipUint)
 	}
 
-	if p.currentIP > p.maxIP {
-		panic("Fake IP range exhausted")
+	if p.currentIP > p.maxIP || p.currentIP == 0 || len(p.domainToIP) >= maxMappings {
+		return nil
 	}
 
 	newIP := p.currentIP

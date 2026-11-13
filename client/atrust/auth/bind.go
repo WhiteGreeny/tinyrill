@@ -78,7 +78,7 @@ func (s *Session) bindAuthDevice() (authStep, error) {
 	for _, number := range numbers {
 		index, err := strconv.Atoi(strings.TrimSpace(number))
 		if err != nil || index < 1 || index > len(result.Data.TrustedDeviceList) {
-			return authStep{}, fmt.Errorf("invalid trusted device number %q", number)
+			return authStep{}, fmt.Errorf("invalid trusted device number")
 		}
 		unbindIDs = append(unbindIDs, result.Data.TrustedDeviceList[index-1].ID)
 	}
@@ -120,14 +120,13 @@ func (s *Session) requestBindAuthDevice(unbindList string) (bindAuthDeviceRespon
 	if err != nil {
 		return bindAuthDeviceResponse{}, err
 	}
-	log.DebugPrintf("Received bindAuthDevice: %s", string(responseBody))
 
 	var result bindAuthDeviceResponse
 	if err := json.Unmarshal(responseBody, &result); err != nil {
 		return bindAuthDeviceResponse{}, err
 	}
 	if result.Code != 0 {
-		return bindAuthDeviceResponse{}, fmt.Errorf("bindAuthDevice failed with code %d: %s", result.Code, result.Message)
+		return bindAuthDeviceResponse{}, gatewayAuthError("bindAuthDevice failed", result.Code)
 	}
 	return result, nil
 }
