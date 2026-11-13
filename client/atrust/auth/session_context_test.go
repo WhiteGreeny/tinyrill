@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -61,7 +60,7 @@ func TestRequestKeepsBodyReadableAfterReturn(t *testing.T) {
 	}))
 	defer server.Close()
 
-	session := NewSession(strings.TrimPrefix(server.URL, "https://"), nil)
+	session := newTLSTestSession(server)
 	req, err := http.NewRequestWithContext(
 		context.Background(), http.MethodGet, session.baseURL+"/passport/v1/public/authConfig", nil)
 	if err != nil {

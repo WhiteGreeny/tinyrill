@@ -19,6 +19,7 @@ import (
 	"github.com/mythologyli/zju-connect/client/authchallenge"
 	"github.com/mythologyli/zju-connect/internal/ipresource"
 	"github.com/mythologyli/zju-connect/internal/keylog"
+	"github.com/mythologyli/zju-connect/internal/tlspolicy"
 	"github.com/mythologyli/zju-connect/log"
 	"github.com/mythologyli/zju-connect/underlay"
 	"inet.af/netaddr"
@@ -33,6 +34,7 @@ type SessionOptions struct {
 }
 
 type ClientOptions struct {
+	TLSPolicy       *tlspolicy.Policy
 	Session         SessionOptions
 	UnderlayDialer  client.UnderlayDialer
 	TLSKeyLogWriter io.Writer
@@ -52,6 +54,7 @@ type SetupOptions struct {
 }
 
 type Client struct {
+	tlsPolicy    *tlspolicy.Policy
 	Username     string
 	SID          string
 	DeviceID     string
@@ -97,6 +100,7 @@ type Client struct {
 func NewClient(options ClientOptions) *Client {
 	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 	return &Client{
+		tlsPolicy:       options.TLSPolicy,
 		Username:        options.Session.Username,
 		SID:             options.Session.SID,
 		DeviceID:        options.Session.DeviceID,
@@ -365,6 +369,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		authServerHost = fmt.Sprintf("%s:%d", options.ServerAddress, options.ServerPort)
 	}
 	sess := auth.NewSessionContext(setupCtx, authServerHost, c.tlsKeyLogWriter, c.underlayDialer.DialContext)
+	sess.SetTLSConfig(c.tlsPolicy.Standard())
 	serverVersionInfo, manifestErr := sess.ServerVersionInfo()
 	serverVersionInfo, err := resolveServerVersionInfo(clientAuthData.ServerVersionInfo, serverVersionInfo, manifestErr)
 	if err != nil {

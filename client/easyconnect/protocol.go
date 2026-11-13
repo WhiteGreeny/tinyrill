@@ -51,6 +51,9 @@ func (e *fakeHeartBeatExtension) Read(b []byte) (n int, err error) {
 
 // Create a special TLS connection to the VPN server
 func (c *Client) tlsConn(ctx context.Context, tunnelType string) (*tls.UConn, error) {
+	if !c.allowLegacyTLS {
+		return nil, errors.New("this EC tunnel requires TLS 1.1/RC4; explicit easyconnect.allow_legacy_tls is required")
+	}
 	// Dial the VPN server
 	dialConn, err := c.dialContext(ctx, "tcp", c.server)
 	if err != nil {
@@ -60,10 +63,9 @@ func (c *Client) tlsConn(ctx context.Context, tunnelType string) (*tls.UConn, er
 
 	// Use uTLS to construct a weird TLS Client Hello (required by Sangfor)
 	// The VPN and HTTP Server share port 443, Sangfor uses a special SessionID to distinguish them
-	conn := tls.UClient(dialConn, &tls.Config{
-		InsecureSkipVerify: true,
-		KeyLogWriter:       c.tlsKeyLogWriter,
-	}, tls.HelloCustom)
+	config := c.uTLSConfig()
+	config.MinVersion = tls.VersionTLS11
+	conn := tls.UClient(dialConn, config, tls.HelloCustom)
 
 	random := make([]byte, 32)
 	_, _ = rand.Read(random) // Ignore err

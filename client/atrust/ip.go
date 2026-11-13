@@ -100,7 +100,7 @@ func (c *Client) getIP(parent context.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
-	conn, err := dialTLSContext(ctx, c.underlayDialer, "tcp", addr, tunnelTLSConfig(c.tlsKeyLogWriter))
+	conn, err := dialTLSContext(ctx, c.underlayDialer, "tcp", addr, c.tunnelTLSConfig())
 	if err != nil {
 		return err
 	}

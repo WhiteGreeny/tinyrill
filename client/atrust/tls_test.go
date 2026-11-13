@@ -11,11 +11,11 @@ import (
 	"github.com/mythologyli/zju-connect/underlay"
 )
 
-func TestTunnelTLSConfigMatchesOfficialTransport(t *testing.T) {
+func TestTunnelTLSConfigRequiresServerVerification(t *testing.T) {
 	config := tunnelTLSConfig(nil)
 
-	if !config.InsecureSkipVerify {
-		t.Fatal("tunnel certificate verification must be disabled")
+	if config.InsecureSkipVerify {
+		t.Fatal("tunnel certificate verification must be enabled")
 	}
 	if !config.SessionTicketsDisabled {
 		t.Fatal("tunnel TLS session tickets must be disabled")
@@ -23,8 +23,8 @@ func TestTunnelTLSConfigMatchesOfficialTransport(t *testing.T) {
 	if config.VerifyConnection != nil || config.VerifyPeerCertificate != nil {
 		t.Fatal("official tunnel transport does not install certificate verification callbacks")
 	}
-	if config.MinVersion != 0 || config.MaxVersion != 0 {
-		t.Fatal("official tunnel transport does not override Go's TLS version defaults")
+	if config.MinVersion != tls.VersionTLS12 || config.MaxVersion != 0 {
+		t.Fatal("tunnel transport must require TLS 1.2 or newer")
 	}
 }
 

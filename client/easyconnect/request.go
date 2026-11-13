@@ -417,10 +417,9 @@ func (c *Client) loginCert() error {
 	}
 
 	c.setHTTPTransport(&tls.Config{
-		InsecureSkipVerify: true,
-		Renegotiation:      tls.RenegotiateOnceAsClient,
-		Certificates:       []tls.Certificate{c.tlsCert},
-		RootCAs:            caCertPool,
+		Renegotiation: tls.RenegotiateOnceAsClient,
+		Certificates:  []tls.Certificate{c.tlsCert},
+		RootCAs:       caCertPool,
 	})
 
 	addr = "https://" + c.server + "/por/login_cert.csp?anti_replay=1&encrypt=1&type=cs"
@@ -592,10 +591,7 @@ func (c *Client) requestToken() error {
 	defer func(dialConn net.Conn) {
 		_ = dialConn.Close()
 	}(dialConn)
-	conn := utls.UClient(dialConn, &utls.Config{
-		InsecureSkipVerify: true,
-		KeyLogWriter:       c.tlsKeyLogWriter,
-	}, utls.HelloGolang)
+	conn := utls.UClient(dialConn, c.uTLSConfig(), utls.HelloGolang)
 	defer func(conn *utls.UConn) {
 		_ = conn.Close()
 	}(conn)

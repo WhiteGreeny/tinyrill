@@ -13,6 +13,7 @@ import (
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/client/authchallenge"
 	"github.com/mythologyli/zju-connect/internal/hook_func"
+	"github.com/mythologyli/zju-connect/internal/tlspolicy"
 	"github.com/mythologyli/zju-connect/log"
 	"inet.af/netaddr"
 )
@@ -38,6 +39,8 @@ type ResourceOptions struct {
 }
 
 type Options struct {
+	TLSPolicy        *tlspolicy.Policy
+	AllowLegacyTLS   bool
 	Server           string
 	Auth             AuthOptions
 	SessionID        string
@@ -49,6 +52,8 @@ type Options struct {
 }
 
 type Client struct {
+	tlsPolicy         *tlspolicy.Policy
+	allowLegacyTLS    bool
 	server            string // Example: rvpn.zju.edu.cn:443. No protocol prefix
 	username          string
 	password          string
@@ -97,6 +102,8 @@ func NewClient(options Options) *Client {
 		challengeHandler = authchallenge.NewCLIHandler(authchallenge.CLIOptions{})
 	}
 	c := &Client{
+		tlsPolicy:         options.TLSPolicy,
+		allowLegacyTLS:    options.AllowLegacyTLS,
 		server:            options.Server,
 		username:          options.Auth.Username,
 		password:          options.Auth.Password,
@@ -115,7 +122,7 @@ func NewClient(options Options) *Client {
 		graphCodeFile:     options.Auth.GraphCodeFile,
 		challengeHandler:  challengeHandler,
 	}
-	c.setHTTPTransport(&tls.Config{InsecureSkipVerify: true})
+	c.setHTTPTransport(&tls.Config{})
 	return c
 }
 
@@ -294,8 +301,11 @@ func (c *Client) setHTTPTransport(tlsConfig *tls.Config) {
 		transport.CloseIdleConnections()
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
 	transport.DialContext = c.dialContext
-	transport.TLSClientConfig = tlsConfig.Clone()
+	transport.TLSClientConfig = c.tlsPolicy.Standard()
+	transport.TLSClientConfig.Certificates = tlsConfig.Certificates
+	transport.TLSClientConfig.Renegotiation = tlsConfig.Renegotiation
 	if c.tlsKeyLogWriter != nil {
 		transport.TLSClientConfig.KeyLogWriter = c.tlsKeyLogWriter
 	}

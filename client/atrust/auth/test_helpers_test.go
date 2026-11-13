@@ -8,7 +8,9 @@ import (
 )
 
 func newTLSTestSession(server *httptest.Server) *Session {
-	return NewSession(strings.TrimPrefix(server.URL, "https://"), nil)
+	session := NewSession(strings.TrimPrefix(server.URL, "https://"), nil)
+	session.SetTLSConfig(server.Client().Transport.(*http.Transport).TLSClientConfig)
+	return session
 }
 
 func TestNewSessionUsesTLSKeyLogWriter(t *testing.T) {

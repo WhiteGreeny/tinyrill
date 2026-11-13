@@ -129,9 +129,7 @@ func (s *Session) authConfigContext(ctx context.Context, mod, needTicket, refres
 	}
 	if len(re.Data.AntiMITM.raw) != 0 {
 		if err := s.checkAntiMITMAuthConfig(ctx, resp, re.Data.AntiMITM, responseCSRFToken); err != nil {
-			// Official desktop and Android clients report this through their
-			// event/UI layer, but their authentication callers continue.
-			log.Printf("aTrust anti-MITM check failed: %v", err)
+			return 0, nil, fmt.Errorf("aTrust anti-MITM verification failed: %w", err)
 		}
 	}
 	if err := ctx.Err(); err != nil {

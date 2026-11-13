@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-func TestAuthenticationTLSAcceptsSelfSignedCertificate(t *testing.T) {
+func TestAuthenticationTLSTrustsConfiguredCertificate(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
 	}))
@@ -22,6 +22,17 @@ func TestAuthenticationTLSAcceptsSelfSignedCertificate(t *testing.T) {
 	session := newTLSTestSession(server)
 	if _, err := session.accessCheck(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAuthenticationTLSRejectsUnknownCertificate(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
+	}))
+	defer server.Close()
+	session := NewSession(strings.TrimPrefix(server.URL, "https://"), nil)
+	if _, err := session.accessCheck(); err == nil {
+		t.Fatal("untrusted authentication certificate accepted")
 	}
 }
 func TestSangforCertificateDigest(t *testing.T) {
@@ -159,7 +170,7 @@ func TestAuthConfigAcceptsMatchingAntiMITMCertificate(t *testing.T) {
 	}
 }
 
-func TestAuthConfigReportsButDoesNotPropagateSecondStageFailure(t *testing.T) {
+func TestAuthConfigRejectsSecondStageFailure(t *testing.T) {
 	var encodedCertificate string
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/controller/v1/public/antiMITMRequest" {
@@ -172,12 +183,12 @@ func TestAuthConfigReportsButDoesNotPropagateSecondStageFailure(t *testing.T) {
 	encodedCertificate = base64.StdEncoding.EncodeToString(server.Certificate().Raw)
 
 	session := newTLSTestSession(server)
-	if _, _, err := session.authConfig(false, true); err != nil {
-		t.Fatalf("official authentication caller does not propagate the check result: %v", err)
+	if _, _, err := session.authConfig(false, true); err == nil || !strings.Contains(err.Error(), "nonce mismatch") {
+		t.Fatalf("expected anti-MITM nonce failure: %v", err)
 	}
 }
 
-func TestAuthConfigReportsButDoesNotPropagateMismatchedAntiMITMCertificate(t *testing.T) {
+func TestAuthConfigRejectsMismatchedAntiMITMCertificate(t *testing.T) {
 	encodedCertificate := base64.StdEncoding.EncodeToString([]byte("not the peer certificate"))
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -186,8 +197,8 @@ func TestAuthConfigReportsButDoesNotPropagateMismatchedAntiMITMCertificate(t *te
 	defer server.Close()
 
 	session := newTLSTestSession(server)
-	if _, _, err := session.authConfig(false, true); err != nil {
-		t.Fatalf("official authentication caller does not propagate the check result: %v", err)
+	if _, _, err := session.authConfig(false, true); err == nil || !strings.Contains(err.Error(), "certificate mismatch") {
+		t.Fatalf("expected anti-MITM certificate failure: %v", err)
 	}
 }
 

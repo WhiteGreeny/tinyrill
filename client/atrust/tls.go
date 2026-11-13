@@ -22,12 +22,18 @@ func tlsConfig(config *tls.Config, keyLogWriter io.Writer) *tls.Config {
 	return config
 }
 
-// tunnelTLSConfig mirrors the official client's standard TLS transport.
+// tunnelTLSConfig retains the tunnel's session-ticket behavior with normal trust.
 func tunnelTLSConfig(keyLogWriter io.Writer) *tls.Config {
 	return tlsConfig(&tls.Config{
-		InsecureSkipVerify:     true,
+		MinVersion:             tls.VersionTLS12,
 		SessionTicketsDisabled: true,
 	}, keyLogWriter)
+}
+
+func (c *Client) tunnelTLSConfig() *tls.Config {
+	config := c.tlsPolicy.Standard()
+	config.SessionTicketsDisabled = true
+	return tlsConfig(config, c.tlsKeyLogWriter)
 }
 
 func dialTLSContext(ctx context.Context, dialer client.UnderlayDialer, network, address string, config *tls.Config) (*tls.Conn, error) {

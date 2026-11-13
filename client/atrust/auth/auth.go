@@ -124,8 +124,8 @@ func NewSession(server string, tlsKeyLogWriter io.Writer, dialContext ...client.
 func NewSessionContext(ctx context.Context, server string, tlsKeyLogWriter io.Writer, dialContext ...client.DialContextFunc) *Session {
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-			KeyLogWriter:       tlsKeyLogWriter,
+			MinVersion:   tls.VersionTLS12,
+			KeyLogWriter: tlsKeyLogWriter,
 		},
 	}
 	if len(dialContext) > 0 && dialContext[0] != nil {
