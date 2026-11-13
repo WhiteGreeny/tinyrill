@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,8 +61,12 @@ type httpProxy struct {
 }
 
 func newHTTPProxy(dialer *dial.Dialer) *httpProxy {
+	return newHTTPProxyWithDial(dialer.Dial)
+}
+
+func newHTTPProxyWithDial(dialContext client.DialContextFunc) *httpProxy {
 	proxy := &httpProxy{
-		dialContext: dialer.Dial,
+		dialContext: dialContext,
 		tunnels:     make(map[*httpTunnel]struct{}),
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -93,7 +98,14 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	log.DebugPrintf("HTTP proxy request: %s %s", req.Method, req.URL.String())
+	if req.URL.Host == "" || req.URL.User != nil || (req.URL.Scheme != "http" && req.URL.Scheme != "https") {
+		http.Error(w, "absolute HTTP URL required", http.StatusBadRequest)
+		return
+	}
+	req = req.Clone(req.Context())
+	removeHopHeaders(req.Header)
+	req.Header.Del("Proxy-Authorization")
+	log.DebugPrintf("HTTP proxy request: %s %s", req.Method, req.URL.Host)
 	req.RequestURI = ""
 
 	resp, err := p.client.Do(req)
@@ -107,6 +119,7 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	log.DebugPrintf("HTTP proxy upstream response: %s %s: %s", req.Method, req.URL.String(), resp.Status)
 
 	hdr := w.Header()
+	removeHopHeaders(resp.Header)
 	for k, v := range resp.Header {
 		hdr[k] = v
 	}
@@ -218,6 +231,18 @@ func newHTTPServer(bindAddr string, handler http.Handler) *http.Server {
 		Handler:           handler,
 		ReadHeaderTimeout: httpProxyReadHeaderTimeout,
 		IdleTimeout:       httpProxyServerIdleTimeout,
+		MaxHeaderBytes:    64 << 10,
+	}
+}
+
+func removeHopHeaders(header http.Header) {
+	for _, value := range header.Values("Connection") {
+		for _, name := range strings.Split(value, ",") {
+			header.Del(strings.TrimSpace(name))
+		}
+	}
+	for _, name := range []string{"Connection", "Proxy-Connection", "Keep-Alive", "Proxy-Authenticate", "TE", "Trailer", "Transfer-Encoding", "Upgrade"} {
+		header.Del(name)
 	}
 }
 

@@ -60,6 +60,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, address string) (net.C
 	}
 	if !matched && d.resourceIndex != nil {
 		if resource, ok := matchIPResourceForTunnel(d.resourceIndex, ip, "tcp", port); ok {
+			ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, []client.DomainResource(nil))
 			ctx = context.WithValue(ctx, resolve.ContextKeyIPResource, resource)
 			matched = true
 		}

@@ -99,6 +99,19 @@ type capturingStack struct {
 	ipResource     client.IPResource
 }
 
+func TestIPResourceDoesNotCarryUnmatchedDomainAuthorization(t *testing.T) {
+	s := &capturingStack{}
+	resource := client.IPResource{IPMin: net.IPv4(10, 0, 0, 1), IPMax: net.IPv4(10, 0, 0, 1), PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "ip"}
+	d := NewDialer(s, nil, []client.IPResource{resource})
+	ctx := context.WithValue(context.Background(), resolve.ContextKeyDomainResource, client.DomainResource{Protocol: "tcp", PortMin: 22, PortMax: 22, AppID: "ssh-only"})
+	if _, err := d.DialIPPort(ctx, "tcp", "10.0.0.1:443"); err != nil {
+		t.Fatal(err)
+	}
+	if s.domainResource.AppID != "" || s.ipResource.AppID != "ip" {
+		t.Fatal("unmatched domain authorization leaked into IP path")
+	}
+}
+
 func (s *capturingStack) Run()                                                {}
 func (s *capturingStack) SetupResolve(zcdns.LocalServer)                      {}
 func (s *capturingStack) SetupIPPool(*ippool.IPPool[[]client.DomainResource]) {}

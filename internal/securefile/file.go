@@ -14,6 +14,11 @@ func Create(path string) (*os.File, error) {
 	return openPrivate(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC)
 }
 
+// OpenLock preserves the inode and contents of a process lock file.
+func OpenLock(path string) (*os.File, error) {
+	return openPrivate(path, os.O_CREATE|os.O_RDWR)
+}
+
 // Write atomically replaces a file after writing and syncing a private sibling.
 func Write(path string, data []byte) error {
 	temporary := filepath.Join(filepath.Dir(path), ".tinyrill-"+rand.Text())
