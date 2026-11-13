@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/mythologyli/zju-connect/client"
+	"github.com/mythologyli/zju-connect/client/atrust/auth"
 	"github.com/mythologyli/zju-connect/internal/ipresource"
 	"github.com/mythologyli/zju-connect/internal/zctcpip"
 	zlog "github.com/mythologyli/zju-connect/log"
@@ -168,7 +169,7 @@ func TestTunnelAuthUsesContextDeadline(t *testing.T) {
 	}
 }
 
-func TestTunnelReconnectUsesFixedIntervalUntilSuccessAndSharesResult(t *testing.T) {
+func TestTunnelReconnectUsesBackoffAndSharesResult(t *testing.T) {
 	client := newSessionTestClient()
 	client.BestNodes = map[string]string{"group": "node:443"}
 	tunnel := &L3Tunnel{
@@ -194,7 +195,7 @@ func TestTunnelReconnectUsesFixedIntervalUntilSuccessAndSharesResult(t *testing.
 		attemptTimesMu.Lock()
 		attemptTimes = append(attemptTimes, time.Now())
 		attemptTimesMu.Unlock()
-		if call <= 6 {
+		if call <= 2 {
 			return nil, fmt.Errorf("dial failed: %w", net.ErrClosed)
 		}
 		return want, nil
@@ -208,18 +209,53 @@ func TestTunnelReconnectUsesFixedIntervalUntilSuccessAndSharesResult(t *testing.
 	if got != want {
 		t.Fatalf("getConn() = %p, want %p", got, want)
 	}
-	if calls.Load() != 7 {
-		t.Fatalf("connect calls = %d, want 7", calls.Load())
+	if calls.Load() != 3 {
+		t.Fatalf("connect calls = %d, want 3", calls.Load())
 	}
 	attemptTimesMu.Lock()
 	defer attemptTimesMu.Unlock()
 	for i := 1; i < len(attemptTimes); i++ {
 		elapsed := attemptTimes[i].Sub(attemptTimes[i-1])
-		if elapsed < 8*time.Millisecond || elapsed > 100*time.Millisecond {
-			t.Fatalf("retry delay %d = %s, want fixed 10ms interval", i, elapsed)
+		if elapsed < time.Duration(1<<i)*10*time.Millisecond {
+			t.Fatalf("retry delay %d = %s, want exponential backoff", i, elapsed)
 		}
 	}
 	tunnel.Close()
+}
+
+func TestTunnelReconnectStopsAfterLimitOrInvalidSession(t *testing.T) {
+	for _, failure := range []error{io.ErrUnexpectedEOF, auth.ErrSessionInvalid} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			c := newSessionTestClient()
+			defer c.Close()
+			c.BestNodes = map[string]string{"group": "node:443"}
+			tunnel := &L3Tunnel{client: c, conns: make(map[string]*l3TunnelConn), connecting: make(map[string]*l3TunnelConnectCall), closeCh: make(chan struct{}), reconnectInterval: time.Millisecond}
+			defer tunnel.Close()
+			var attempts atomic.Int32
+			tunnel.connect = func(context.Context, string, *conntrackMgr) (*l3TunnelConn, error) {
+				attempts.Add(1)
+				return nil, failure
+			}
+			if _, err := tunnel.getConn("group"); !errors.Is(err, failure) {
+				t.Fatalf("error = %v", err)
+			}
+			want := int32(3)
+			if errors.Is(failure, auth.ErrSessionInvalid) {
+				want = 1
+			}
+			if attempts.Load() != want {
+				t.Fatalf("attempts = %d, want %d", attempts.Load(), want)
+			}
+			select {
+			case err := <-c.Errors():
+				if !errors.Is(err, failure) {
+					t.Fatalf("failure = %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("session owner was not notified")
+			}
+		})
+	}
 }
 
 func TestReconnectDoesNotRaceForegroundConnect(t *testing.T) {

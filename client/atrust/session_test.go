@@ -6,9 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
-	"os/exec"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -148,45 +145,40 @@ func TestConcurrentSessionSIDReaders(t *testing.T) {
 	wg.Wait()
 }
 
-func TestSessionInvalidExits(t *testing.T) {
-	if mode := os.Getenv("ZJU_CONNECT_TEST_INVALID_SESSION"); mode != "" {
-		parts := strings.Split(mode, ":")
-		payload := fmt.Sprintf(`{"code":%s,"message":"session rejected"}`, parts[1])
-		switch parts[0] {
-		case "refresh":
-			c := NewClient(ClientOptions{Session: SessionOptions{SID: "old"}})
-			c.startSessionRefresh(func(context.Context) (auth.LoginResult, error) {
-				return auth.LoginResult{}, fmt.Errorf("refresh rejected: %w", auth.ErrSessionInvalid)
-			}, auth.ClientAuthData{}, nil, time.Millisecond)
-			<-c.refreshDone
-		case "tcp":
-			_ = parseTCPTunnelAuthResponse(payload)
-		case "ip":
-			_ = parseIPAuthResponse([]byte(payload))
-		case "l3":
-			// Reject the session before retrying or looking up conntrack.
-			(&l3TunnelConn{}).handleAuthResp(authImmediateRetryStatus, []byte(payload))
+func TestSessionInvalidIsReturnedWithoutExiting(t *testing.T) {
+	for _, code := range []int{10000004, 75500002} {
+		payload := fmt.Sprintf(`{"code":%d,"message":"session rejected"}`, code)
+		if err := parseTCPTunnelAuthResponse(payload); !errors.Is(err, auth.ErrSessionInvalid) {
+			t.Fatalf("TCP error: %v", err)
 		}
-		return
+		if err := parseIPAuthResponse([]byte(payload)); !errors.Is(err, auth.ErrSessionInvalid) {
+			t.Fatalf("IP error: %v", err)
+		}
+		c := NewClient(ClientOptions{Session: SessionOptions{SID: "old"}})
+		tunnel := &l3TunnelConn{info: clientInfo{onSessionInvalid: c.reportFailure}}
+		tunnel.handleAuthResp(authImmediateRetryStatus, []byte(payload))
+		select {
+		case err := <-c.Errors():
+			if !errors.Is(err, auth.ErrSessionInvalid) {
+				t.Fatal(err)
+			}
+		default:
+			t.Fatal("L3 invalidation was not reported")
+		}
+		c.Close()
 	}
-	for _, mode := range []string{"refresh:0", "tcp:10000004", "tcp:75500002", "ip:10000004", "ip:75500002", "l3:10000004", "l3:75500002"} {
-		t.Run(mode, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestSessionInvalidExits$")
-			cmd.Env = append(os.Environ(), "ZJU_CONNECT_TEST_INVALID_SESSION="+mode)
-			output, err := cmd.CombinedOutput()
-			var exitErr *exec.ExitError
-			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 || ctx.Err() != nil {
-				t.Fatalf("expected exit code 1: %v, output: %s", err, output)
-			}
-			want := "aTrust session is invalid (code " + strings.Split(mode, ":")[1] + "): session rejected"
-			if mode == "refresh:0" {
-				want = "aTrust session maintenance failed: refresh rejected: " + auth.ErrSessionInvalid.Error()
-			}
-			if !strings.Contains(string(output), want) {
-				t.Fatalf("missing diagnostic %q: %s", want, output)
-			}
-		})
+	c := NewClient(ClientOptions{Session: SessionOptions{SID: "old"}})
+	defer c.Close()
+	c.startSessionRefresh(func(context.Context) (auth.LoginResult, error) { return auth.LoginResult{}, auth.ErrSessionInvalid }, auth.ClientAuthData{}, nil, time.Millisecond)
+	select {
+	case err := <-c.Errors():
+		if !errors.Is(err, auth.ErrSessionInvalid) {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("refresh invalidation was not reported")
+	}
+	if sid, err := c.sessionSID(); sid != "" || !errors.Is(err, auth.ErrSessionInvalid) {
+		t.Fatalf("invalid SID remains usable: %q %v", sid, err)
 	}
 }

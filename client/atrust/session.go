@@ -39,7 +39,8 @@ func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginRe
 				return
 			}
 			if errors.Is(err, auth.ErrSessionInvalid) {
-				log.Fatalf("aTrust session maintenance failed: %v", err)
+				c.reportFailure(err)
+				return
 			}
 			if err != nil {
 				log.Printf("aTrust authConfig refresh failed: %v", err)

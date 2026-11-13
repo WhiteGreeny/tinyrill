@@ -10,6 +10,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/mythologyli/zju-connect/client/atrust/auth"
 	"github.com/mythologyli/zju-connect/log"
 )
 
@@ -20,7 +21,7 @@ func parseIPAuthResponse(data []byte) error {
 	}
 	if response.Code != 0 {
 		if response.Code == 10000004 || response.Code == 75500002 {
-			log.Fatalf("IP tunnel: aTrust session is invalid (code %d): %s", response.Code, response.Message)
+			return fmt.Errorf("%w: IP tunnel code %d", auth.ErrSessionInvalid, response.Code)
 		}
 		return fmt.Errorf("IP tunnel authentication failed (code %d): %s", response.Code, response.Message)
 	}

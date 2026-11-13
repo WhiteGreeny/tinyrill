@@ -11,6 +11,10 @@ import (
 
 var ErrSessionInvalid = errors.New("aTrust session is invalid; reauthentication required")
 
+// ContinueWithContext transfers an authenticated session to its owner's
+// lifetime. Call only after setup requests finish and before starting refresh.
+func (s *Session) ContinueWithContext(ctx context.Context) { s.ctx = ctx }
+
 // Restore initializes the control-plane session when tunnel credentials were
 // supplied directly. A supplied SID takes precedence over persisted cookies.
 func (s *Session) Restore(deviceID, sid string, cookies []Cookie) {

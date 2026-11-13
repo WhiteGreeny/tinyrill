@@ -5,12 +5,9 @@ import (
 	"errors"
 	"io"
 	"net"
-	"os"
 	"sync"
 
 	clientpkg "github.com/mythologyli/zju-connect/client"
-	"github.com/mythologyli/zju-connect/client/easyconnect"
-	"github.com/mythologyli/zju-connect/internal/hook_func"
 	"github.com/mythologyli/zju-connect/internal/ippool"
 	"github.com/mythologyli/zju-connect/internal/zcdns"
 	"github.com/mythologyli/zju-connect/log"
@@ -24,9 +21,14 @@ import (
 )
 
 type Stack struct {
-	gvisorStack *stack.Stack
-	resolve     zcdns.LocalServer
-	ipPool      *ippool.IPPool[[]clientpkg.DomainResource]
+	lifecycleMu              sync.Mutex
+	started, reading, closed bool
+	closeOnce                sync.Once
+	readDone                 chan struct{}
+	failures                 chan error
+	gvisorStack              *stack.Stack
+	resolve                  zcdns.LocalServer
+	ipPool                   *ippool.IPPool[[]clientpkg.DomainResource]
 
 	endpoint *Endpoint
 	ipMu     sync.Mutex
@@ -41,6 +43,8 @@ type Endpoint struct {
 	client clientpkg.Client
 
 	l3Conn io.ReadWriteCloser
+	connMu sync.RWMutex
+	fail   func(error)
 
 	dispatcher stack.NetworkDispatcher
 }
@@ -93,45 +97,33 @@ func (ep *Endpoint) SetOnCloseAction(func()) {}
 
 // WritePackets is called when get packets from gVisor stack. Then it sends them to VPN server
 func (ep *Endpoint) WritePackets(list stack.PacketBufferList) (int, tcpip.Error) {
-	for _, packetBuffer := range list.AsSlice() {
-		buf := joinPacketSlices(packetBuffer.AsSlices())
-
-		if ep.l3Conn != nil {
-			n, err := ep.l3Conn.Write(buf)
-			if err != nil {
-				if errors.Is(err, clientpkg.ErrResourceNotFound) {
-					log.Printf("%v", err)
-					continue
-				}
-
-				// Server-initiated SHUTDOWN: known terminal state from
-				// sangfor (cmd 0x08). No point retrying; run the registered
-				// cleanup hooks (DNS revert, tun device close, etc.) and
-				// exit so systemd / a wrapper can do a fresh login. This
-				// is strictly better than panicking with a gvisor stack
-				// trace, which obscures the actual cause.
-				if errors.Is(err, easyconnect.ErrSangforShutdown) {
-					log.Printf("WritePackets: server SHUTDOWN; running cleanup hooks and exiting for clean restart")
-					if !hook_func.IsTerminal() {
-						hook_func.ExecTerminalFunc(context.Background())
-					}
-					os.Exit(2)
-				}
-
-				if hook_func.IsTerminal() {
-					return list.Len(), nil
-				} else {
-					panic(err)
-				}
-			}
-			log.DebugPrintf("Send: wrote %d bytes", n)
-			log.DebugDumpHex(buf[:n])
-		}
+	ep.connMu.RLock()
+	conn := ep.l3Conn
+	ep.connMu.RUnlock()
+	if conn == nil {
+		return 0, &tcpip.ErrClosedForSend{}
 	}
-
-	return list.Len(), nil
+	sent := 0
+	for _, packet := range list.AsSlice() {
+		buf := joinPacketSlices(packet.AsSlices())
+		n, err := conn.Write(buf)
+		if errors.Is(err, clientpkg.ErrResourceNotFound) {
+			sent++
+			continue
+		}
+		if err == nil && n != len(buf) {
+			err = io.ErrShortWrite
+		}
+		if err != nil {
+			if ep.fail != nil {
+				ep.fail(err)
+			}
+			return sent, &tcpip.ErrAborted{}
+		}
+		sent++
+	}
+	return sent, nil
 }
-
 func joinPacketSlices(slices [][]byte) []byte {
 	total := 0
 	for _, slice := range slices {
@@ -146,7 +138,7 @@ func joinPacketSlices(slices [][]byte) []byte {
 }
 
 func NewStack(client clientpkg.Client) (*Stack, error) {
-	s := &Stack{}
+	s := &Stack{failures: make(chan error, 1), readDone: make(chan struct{})}
 
 	s.gvisorStack = stack.New(stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol},
@@ -155,16 +147,18 @@ func NewStack(client clientpkg.Client) (*Stack, error) {
 	})
 
 	s.endpoint = &Endpoint{
-		client: client,
+		client: client, fail: s.fail,
 	}
 
 	tcpipErr := s.gvisorStack.CreateNIC(NICID, s.endpoint)
 	if tcpipErr != nil {
+		_ = s.Close()
 		return nil, errors.New(tcpipErr.String())
 	}
 
 	ip, err := client.IP()
 	if err != nil {
+		_ = s.Close()
 		return nil, err
 	}
 
@@ -180,6 +174,7 @@ func NewStack(client clientpkg.Client) (*Stack, error) {
 
 	tcpipErr = s.gvisorStack.AddProtocolAddress(NICID, protoAddr, stack.AddressProperties{})
 	if tcpipErr != nil {
+		_ = s.Close()
 		return nil, errors.New(tcpipErr.String())
 	}
 	clientpkg.RegisterIPUpdateHandler(client, s.updateIP)
@@ -227,32 +222,103 @@ func (s *Stack) SetupIPPool(ipPool *ippool.IPPool[[]clientpkg.DomainResource]) {
 	s.ipPool = ipPool
 }
 
+// Run is retained for protocol callers; the CLI uses Start/Errors/Close.
 func (s *Stack) Run() {
-	var connErr error
-	s.endpoint.l3Conn, connErr = s.endpoint.client.NewL3Conn()
-	if connErr != nil {
-		panic(connErr)
+	if err := s.Start(context.Background()); err != nil {
+		s.fail(err)
+		return
 	}
-	// Read from VPN server and send to gVisor stack
-	buf := make([]byte, maxInboundPacketSize)
-	for {
-		n, err := s.endpoint.l3Conn.Read(buf)
-		if err != nil {
-			if hook_func.IsTerminal() {
-				return
-			} else {
-				panic(err)
-			}
-		}
-		log.DebugPrintf("Recv: read %d bytes", n)
-		log.DebugDumpHex(buf[:n])
+	<-s.readDone
+}
 
-		packetBuffer := makeInboundPacketBuffer(buf, n)
-		s.endpoint.dispatcher.DeliverNetworkPacket(header.IPv4ProtocolNumber, packetBuffer)
-		packetBuffer.DecRef()
+func (s *Stack) Errors() <-chan error { return s.failures }
+
+func (s *Stack) fail(err error) {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if s.closed {
+		return
+	}
+	select {
+	case s.failures <- err:
+	default:
 	}
 }
 
+func (s *Stack) Start(ctx context.Context) error {
+	s.lifecycleMu.Lock()
+	if s.closed || s.started {
+		s.lifecycleMu.Unlock()
+		return net.ErrClosed
+	}
+	s.started = true
+	s.lifecycleMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	stop := context.AfterFunc(ctx, func() {
+		if closer, ok := s.endpoint.client.(interface{ Close() }); ok {
+			closer.Close()
+		}
+	})
+	defer stop()
+	conn, err := s.endpoint.client.NewL3Conn()
+	if err != nil {
+		return err
+	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if s.closed || ctx.Err() != nil {
+		conn.Close()
+		return net.ErrClosed
+	}
+	s.endpoint.connMu.Lock()
+	s.endpoint.l3Conn = conn
+	s.endpoint.connMu.Unlock()
+	s.reading = true
+	go s.readPackets(conn)
+	return nil
+}
+
+func (s *Stack) readPackets(conn io.ReadWriteCloser) {
+	defer close(s.readDone)
+	buf := make([]byte, maxInboundPacketSize)
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			s.fail(err)
+			return
+		}
+		if n <= 0 {
+			s.fail(io.ErrNoProgress)
+			return
+		}
+		packet := makeInboundPacketBuffer(buf, n)
+		s.endpoint.dispatcher.DeliverNetworkPacket(header.IPv4ProtocolNumber, packet)
+		packet.DecRef()
+	}
+}
+
+func (s *Stack) Close() error {
+	s.closeOnce.Do(func() {
+		s.lifecycleMu.Lock()
+		s.closed = true
+		reading := s.reading
+		s.lifecycleMu.Unlock()
+		s.endpoint.connMu.RLock()
+		conn := s.endpoint.l3Conn
+		s.endpoint.connMu.RUnlock()
+		if conn != nil {
+			_ = conn.Close()
+		}
+		if reading {
+			<-s.readDone
+		}
+		s.gvisorStack.Close()
+		s.gvisorStack.Wait()
+	})
+	return nil
+}
 func makeInboundPacketBuffer(buf []byte, n int) *stack.PacketBuffer {
 	return stack.NewPacketBuffer(stack.PacketBufferOptions{
 		Payload: buffer.MakeWithData(buf[:n]),

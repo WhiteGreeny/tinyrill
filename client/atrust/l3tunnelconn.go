@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mythologyli/zju-connect/client/atrust/auth"
 	"github.com/mythologyli/zju-connect/internal/zctcpip"
 	"github.com/mythologyli/zju-connect/log"
 )
@@ -59,11 +60,12 @@ var dataFramePool = sync.Pool{
 }
 
 type clientInfo struct {
-	sid          string
-	sidProvider  func() (string, error)
-	deviceID     string
-	connectionID string
-	username     string
+	onSessionInvalid func(error)
+	sid              string
+	sidProvider      func() (string, error)
+	deviceID         string
+	connectionID     string
+	username         string
 }
 
 func (info clientInfo) currentSID() (string, error) {
@@ -237,8 +239,12 @@ func (c *l3TunnelConn) withContextDeadline(ctx context.Context, operation func()
 func (c *l3TunnelConn) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
-		close(c.closeCh)
-		err = c.tlsConn.Close()
+		if c.closeCh != nil {
+			close(c.closeCh)
+		}
+		if c.tlsConn != nil {
+			err = c.tlsConn.Close()
+		}
 	})
 	return err
 }
@@ -527,7 +533,11 @@ func (c *l3TunnelConn) handleAuthResp(status byte, payload []byte) {
 		return
 	}
 	if resp.Code == 10000004 || resp.Code == 75500002 {
-		log.Fatalf("l3-tunnel resource auth: aTrust session is invalid (code %d): %s", resp.Code, resp.Message)
+		if c.info.onSessionInvalid != nil {
+			c.info.onSessionInvalid(auth.ErrSessionInvalid)
+		}
+		_ = c.Close()
+		return
 	}
 	ct := c.conntrackMgr.getByID(resp.Data.ConntrackHash)
 	if ct == nil {
@@ -936,7 +946,7 @@ func (c *l3TunnelConn) authTunnel() error {
 			return err
 		}
 		if resp.Code == 10000004 || resp.Code == 75500002 {
-			log.Fatalf("l3-tunnel: aTrust session is invalid (code %d): %s", resp.Code, resp.Message)
+			return fmt.Errorf("%w: L3 tunnel code %d", auth.ErrSessionInvalid, resp.Code)
 		}
 		if resp.Code != 0 {
 			return fmt.Errorf("l3-tunnel tunnel auth failed: %d %s", resp.Code, resp.Message)

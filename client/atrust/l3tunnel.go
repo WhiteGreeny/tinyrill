@@ -3,12 +3,15 @@ package atrust
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/mythologyli/zju-connect/client"
+	"github.com/mythologyli/zju-connect/client/atrust/auth"
 	"github.com/mythologyli/zju-connect/internal/ipresource"
 	"github.com/mythologyli/zju-connect/log"
 )
@@ -57,10 +60,11 @@ func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
 	}
 	t.connect = func(ctx context.Context, addr string, conntrackMgr *conntrackMgr) (*l3TunnelConn, error) {
 		info := clientInfo{
-			sidProvider:  aTrustClient.sessionSID,
-			deviceID:     aTrustClient.DeviceID,
-			connectionID: aTrustClient.ConnectionID,
-			username:     aTrustClient.Username,
+			onSessionInvalid: aTrustClient.reportFailure,
+			sidProvider:      aTrustClient.sessionSID,
+			deviceID:         aTrustClient.DeviceID,
+			connectionID:     aTrustClient.ConnectionID,
+			username:         aTrustClient.Username,
 		}
 		dialTLS := func(ctx context.Context, network, address string, config *tls.Config) (*tls.Conn, error) {
 			return dialTLSContext(ctx, aTrustClient.underlayDialer, network, address, aTrustClient.tunnelTLSConfig())
@@ -292,9 +296,11 @@ func (t *L3Tunnel) connectWithRetry(nodeGroupID string, call *l3TunnelConnectCal
 	if interval <= 0 {
 		interval = defaultReconnectInterval
 	}
-	for attempt := 0; ; attempt++ {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
 		if !immediate || attempt > 0 {
-			timer := time.NewTimer(interval)
+			delay := interval * time.Duration(1<<attempt)
+			timer := time.NewTimer(delay + time.Duration(rand.Int64N(int64(delay/4)+1)))
 			select {
 			case <-timer.C:
 			case <-t.closeCh:
@@ -313,7 +319,15 @@ func (t *L3Tunnel) connectWithRetry(nodeGroupID string, call *l3TunnelConnectCal
 			t.finishConnect(nodeGroupID, call, conn, nil)
 			return
 		}
+		lastErr = err
+		if errors.Is(err, auth.ErrSessionInvalid) || errors.Is(err, context.Canceled) {
+			break
+		}
 		log.DebugPrintf("l3-tunnel connect attempt %d failed for group %s: %v", attempt+1, nodeGroupID, err)
+	}
+	t.finishConnect(nodeGroupID, call, nil, lastErr)
+	if t.client != nil {
+		t.client.reportFailure(lastErr)
 	}
 }
 

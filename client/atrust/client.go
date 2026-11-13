@@ -54,6 +54,7 @@ type SetupOptions struct {
 }
 
 type Client struct {
+	failures     chan error
 	tlsPolicy    *tlspolicy.Policy
 	Username     string
 	SID          string
@@ -100,6 +101,7 @@ type Client struct {
 func NewClient(options ClientOptions) *Client {
 	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 	return &Client{
+		failures:        make(chan error, 1),
 		tlsPolicy:       options.TLSPolicy,
 		Username:        options.Session.Username,
 		SID:             options.Session.SID,
@@ -477,6 +479,9 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		}
 	}
 	if options.SessionRefreshInterval > 0 {
+		// Authentication used the bounded setup context; maintenance belongs to
+		// the client lifetime after setup returns and cancels that context.
+		sess.ContinueWithContext(c.lifecycleCtx)
 		c.startSessionRefresh(sess.Refresh, clientAuthData, options.SaveClientData, options.SessionRefreshInterval)
 	}
 

@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/mythologyli/zju-connect/client"
+	"github.com/mythologyli/zju-connect/client/atrust/auth"
 	"github.com/mythologyli/zju-connect/internal/ipresource"
 	"github.com/mythologyli/zju-connect/log"
 	"github.com/mythologyli/zju-connect/resolve"
@@ -168,7 +170,7 @@ func parseTCPTunnelAuthResponse(data string) error {
 	}
 	if response.Code != 0 {
 		if response.Code == 10000004 || response.Code == 75500002 {
-			log.Fatalf("tcp tunnel: aTrust session is invalid (code %d): %s", response.Code, response.Message)
+			return fmt.Errorf("%w: TCP tunnel code %d", auth.ErrSessionInvalid, response.Code)
 		}
 		return fmt.Errorf("tcp tunnel authentication failed (code %d): %s", response.Code, response.Message)
 	}
@@ -607,6 +609,9 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 	clearDeadlineErr := conn.SetReadDeadline(time.Time{})
 	if waitErr != nil {
 		_ = conn.Close()
+		if errors.Is(waitErr, auth.ErrSessionInvalid) {
+			c.reportFailure(waitErr)
+		}
 		return nil, waitErr
 	}
 	if clearDeadlineErr != nil {

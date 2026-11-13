@@ -12,7 +12,6 @@ import (
 
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/client/authchallenge"
-	"github.com/mythologyli/zju-connect/internal/hook_func"
 	"github.com/mythologyli/zju-connect/internal/tlspolicy"
 	"github.com/mythologyli/zju-connect/log"
 	"inet.af/netaddr"
@@ -201,6 +200,15 @@ func (c *Client) CanUseTCPTunnel() bool {
 }
 
 func (c *Client) Setup() error {
+	return c.SetupContext(context.Background())
+}
+
+func (c *Client) SetupContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	stop := context.AfterFunc(ctx, c.lifecycleCancel)
+	defer stop()
 	if c.underlayDialer == nil {
 		return errors.New("underlay dialer is required")
 	}
@@ -263,7 +271,13 @@ func (c *Client) Setup() error {
 	} else {
 		// Error may occur if we request too fast
 		if time.Since(startTime) < time.Second {
-			time.Sleep(time.Second - time.Since(startTime))
+			timer := time.NewTimer(time.Second - time.Since(startTime))
+			select {
+			case <-timer.C:
+			case <-c.lifecycleCtx.Done():
+				timer.Stop()
+				return c.lifecycleCtx.Err()
+			}
 		}
 
 		// Finally, use the token to get client IP
@@ -279,10 +293,6 @@ func (c *Client) Setup() error {
 	// /por/update_session.csp; we mirror that. Guarded by sync.Once so the
 	// repeated Setup calls don't double-start it.
 	c.keepAliveStarted.Do(func() {
-		hook_func.RegisterTerminalFunc("CloseSessionKeepAlive", func(ctx context.Context) error {
-			c.Close()
-			return nil
-		})
 		go c.sessionKeepAliveLoop()
 	})
 
