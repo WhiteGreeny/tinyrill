@@ -23,7 +23,9 @@ pwsh scripts/release.ps1 -TargetOS linux -TargetArch amd64 -Version candidate
 
 Linux/macOS 另运行 `go test -race -count=1 -timeout=180s ./...`。目标目录已存在时脚本拒绝覆盖；将先前产物移到独立目录再重建。Windows/Linux 可交叉构建 amd64/arm64，实际运行验收分别记录。macOS 发布必须使用本机编译器，不在 Windows 上伪造完成状态。
 
-`dist/tinyrill-<os>-<arch>/` 包含可执行文件、对应 Git 提交的 source.tar.gz、LICENSE、第三方来源、示例、文档、CycloneDX SBOM、源码/二进制 govulncheck JSON、build-info、provenance.json 和 SHA256SUMS。工具固定为 govulncheck v1.9.0、cyclonedx-gomod v1.12.0；扫描发现漏洞时打包失败。SBOM 包含自动检测的许可证证据，需检查未识别项。provenance 是构建记录，未签名，不冒称 SLSA/签名证明。
+`dist/tinyrill-<os>-<arch>/` 包含可执行文件、对应 Git 提交的 source.tar.gz、LICENSE、第三方来源、示例、文档、CycloneDX SBOM、源码/二进制 govulncheck JSON、build-info、provenance.json 和 SHA256SUMS。工具固定为 govulncheck v1.9.0、cyclonedx-gomod v1.12.0；扫描发现漏洞时打包失败。SBOM 包含 Go 标准库和自动检测的许可证证据，`licenses/` 同时保留 Go 与模块原始许可证/NOTICE 和来源索引。provenance 是构建记录，未签名，不冒称 SLSA/签名证明。
+
+Windows 输出 ZIP，Linux/macOS 输出 tar.gz；归档旁有单独 SHA256 文件。Unix 归档内的二进制显式保留 0755 执行权限，即使交叉构建主机为 Windows。
 
 发布二进制采用 trimpath，显式版本和完整提交。时间戳位于构建记录和 SBOM；不承诺整个目录的字节级可复现。工具与模块下载由 Go 校验；扫描数据库是构建时获取的当前数据，报告记录其时间，后续发布需重扫。
 
