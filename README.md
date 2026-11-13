@@ -2,7 +2,7 @@
 
 面向多客户场景的 EC / aTrust 精简客户端，fork 自 [zju-connect](https://github.com/Mythologyli/zju-connect)。每个进程连接一个客户，提供 HTTP 代理和 SOCKS5 TCP CONNECT；应用选择和系统流量接管交给上层代理软件。
 
-当前是开发中的候选版本。可控测试不代表真实客户网关已验收；EC 7.6.3、EC 7.6.7 和 aTrust 场景的实际认证与业务兼容性仍待验证。见 [实施记录](docs/implementation-status.md) 和 [完整方案](docs/ec-atrust-fork-plan.md)。
+当前已交付 `0.1.0-rc.1` 本地候选，包含 Windows/Linux amd64 原生包与 rootless Podman 镜像，见 [交付记录](docs/candidate-0.1.0-rc.1.md)。可控测试不代表真实客户网关已验收；EC 7.6.3、EC 7.6.7 和 aTrust 场景的实际认证与业务兼容性由用户安排验证。见 [实施记录](docs/implementation-status.md) 和 [完整方案](docs/ec-atrust-fork-plan.md)。
 
 ## 运行
 

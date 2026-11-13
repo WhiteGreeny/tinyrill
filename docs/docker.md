@@ -13,12 +13,12 @@ pwsh scripts/release.ps1 -TargetOS linux -TargetArch amd64 -Version candidate
 然后在有 Podman 的 Linux 环境构建同架构镜像：
 
 ```sh
-podman build --build-arg TARGETARCH=amd64 \
+podman build --no-cache --build-arg TARGETARCH=amd64 \
   --build-arg VERSION=candidate --build-arg COMMIT="$(git rev-parse HEAD)" \
   -t localhost/tinyrill:candidate .
 ```
 
-基础镜像已固定 digest；构建上下文只允许发布二进制与许可证。arm64 使用对应发布目录和 TARGETARCH；本地架构必须匹配，或使用另行配置的模拟环境。源码、SBOM 与报告在发布目录，分发镜像时一起提供对应源码包。
+基础镜像已固定 digest；构建上下文只允许发布二进制与许可证。使用 `--no-cache` 避免部分 Podman/Buildah 版本跨构建参数复用旧 LABEL；版本与 revision 必须和二进制的 `version` 输出一致。arm64 使用对应发布目录和 TARGETARCH；本地架构必须匹配，或使用另行配置的模拟环境。源码、SBOM 与报告在发布目录，分发镜像时一起提供对应源码包。
 
 ## 前台运行
 

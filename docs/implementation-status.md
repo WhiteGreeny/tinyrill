@@ -21,7 +21,9 @@
 - 已完成：Go 1.27.4、brotli v1.2.7、compress v1.20.2、x/crypto v0.59.0、x/net v0.62.0 等安全更新。govulncheck v1.9.0 最终 Linux 源码扫描无漏洞；已升级的 Debian 13 Distroless 镜像经 Trivy 0.76.2 扫描，系统和 Go 组件均为 0 条。详见 security-scans.md。
 - 已完成：Windows 全量回归；Ubuntu 26.04 WSL 全量 race 回归；实际 Linux PTY 隐藏输入、取消和模式恢复；EC/aTrust 资源解析各 20 秒 fuzz（约 12 万/27 万次执行，无崩溃）。race 检查发现并修复了 aTrust 认证 HTTP 传输初始化与 Close 的竞争。
 - 已完成：rootless Podman 5.7.0 的非 root、只读根、cap-drop=all 镜像启动、配置和私有状态写入；四个客户/容器配置均通过 config-check；验收探测脚本通过合成本机代理检查，无直连。
-- 已准备：同一 Linux 二进制的轻量镜像、原生/容器/服务/mihomo 文档、用户验收表与回退步骤、固定 SHA 和只读权限的 CI，以及包含源码/SBOM/扫描报告/校验和的候选打包脚本。实际产物生成和归档核验继续记录在交付结果中。
+- 已完成：同一 Linux 二进制的轻量镜像、原生/容器/服务/mihomo 文档、用户验收表与回退步骤、固定 SHA 和只读权限的 CI，以及包含源码/SBOM/原始许可证/扫描报告/校验和的候选打包脚本。
+- 已交付本地候选 `0.1.0-rc.1`：Windows amd64 ZIP、Linux amd64 tar.gz 和可直接 `podman load` 的镜像归档。程序与源码固定于 `f33da785624602f733e295e4974608f3cd5a90d3`；归档解压校验、原生 Linux 0755 执行权限、四份配置、镜像标签/导入/受限启动及内嵌二进制一致性均通过。两平台源码与二进制 govulncheck、最终镜像 Trivy 均为 0 条发现，详情见 [候选交付记录](candidate-0.1.0-rc.1.md)。
+- 交付检查修复了跨平台 ZIP、只读依赖许可证复制和 Podman/Buildah 复用旧版本 LABEL 的问题。容器检查从实际二进制提取版本/源码提交，使用无缓存构建并断言标签。当前没有推送 Git、触发远端 CI、创建公开 release 或上传镜像。
 
 ## 本机验证环境
 
