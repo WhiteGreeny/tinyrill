@@ -10,6 +10,7 @@ import (
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/internal/bounded"
 	"github.com/mythologyli/zju-connect/internal/ipresource"
+	"github.com/mythologyli/zju-connect/internal/resourcediag"
 	"github.com/mythologyli/zju-connect/log"
 	"inet.af/netaddr"
 )
@@ -98,6 +99,9 @@ func (c *Client) parseResource(resource []byte) error {
 	err := json.Unmarshal(resource, &clientResource)
 	if err != nil {
 		return err
+	}
+	if c.resourceDiagnostics != nil {
+		c.resourceDiagnostics(resourcediag.ATrust(resource))
 	}
 
 	ipSetBuilder := netaddr.IPSetBuilder{}

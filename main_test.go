@@ -22,6 +22,8 @@ func TestCLIOnlyAcceptsExplicitYAMLCommands(t *testing.T) {
 		{[]string{"run", "--config", path, "--tun-mode"}, 2},
 		{[]string{"run", "--config", path, "--resources", "PASSWORD_MARKER"}, 2},
 		{[]string{"config-check", "--config", path, "--resources", "full"}, 2},
+		{[]string{"config-check", "--config", path, "--resource-debug"}, 2},
+		{[]string{"run", "--config", path, "--resource-debug=PASSWORD_MARKER"}, 2},
 		{[]string{"credentials", "print", "--config", path}, 2},
 		{[]string{"run"}, 2},
 	} {

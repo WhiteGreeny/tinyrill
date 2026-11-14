@@ -14,6 +14,7 @@ import (
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/client/authchallenge"
 	"github.com/mythologyli/zju-connect/internal/bounded"
+	"github.com/mythologyli/zju-connect/internal/resourcediag"
 	"github.com/mythologyli/zju-connect/internal/tlspolicy"
 	"github.com/mythologyli/zju-connect/log"
 	"inet.af/netaddr"
@@ -38,6 +39,7 @@ type AuthOptions struct {
 type ResourceOptions struct {
 	Fetch          bool
 	IncludeDomains bool
+	Diagnostics    resourcediag.Observer
 }
 
 type Options struct {
@@ -54,19 +56,20 @@ type Options struct {
 }
 
 type Client struct {
-	failures          chan error
-	passwordProvider  func(context.Context) (string, error)
-	tlsPolicy         *tlspolicy.Policy
-	allowLegacyTLS    bool
-	server            string // Example: rvpn.zju.edu.cn:443. No protocol prefix
-	username          string
-	password          string
-	totpSecret        string
-	tlsCert           tls.Certificate
-	testMultiLine     bool
-	parseResource     bool
-	useDomainResource bool
-	tcpTunnelOnly     bool
+	failures            chan error
+	passwordProvider    func(context.Context) (string, error)
+	tlsPolicy           *tlspolicy.Policy
+	allowLegacyTLS      bool
+	server              string // Example: rvpn.zju.edu.cn:443. No protocol prefix
+	username            string
+	password            string
+	totpSecret          string
+	tlsCert             tls.Certificate
+	testMultiLine       bool
+	parseResource       bool
+	useDomainResource   bool
+	resourceDiagnostics resourcediag.Observer
+	tcpTunnelOnly       bool
 
 	httpClient        *http.Client
 	underlayDialer    client.UnderlayDialer
@@ -106,27 +109,28 @@ func NewClient(options Options) *Client {
 		challengeHandler = authchallenge.UnsupportedHandler{}
 	}
 	c := &Client{
-		failures:          make(chan error, 1),
-		passwordProvider:  options.Auth.PasswordProvider,
-		tlsPolicy:         options.TLSPolicy,
-		allowLegacyTLS:    options.AllowLegacyTLS,
-		server:            options.Server,
-		username:          options.Auth.Username,
-		password:          options.Auth.Password,
-		totpSecret:        options.Auth.TOTPSecret,
-		tlsCert:           options.Auth.Certificate,
-		testMultiLine:     options.TestMultiLine,
-		parseResource:     options.Resources.Fetch,
-		useDomainResource: options.Resources.IncludeDomains,
-		httpClient:        &http.Client{Timeout: easyConnectHTTPTimeout},
-		underlayDialer:    options.UnderlayDialer,
-		tlsKeyLogWriter:   options.TLSKeyLogWriter,
-		rawRequestTimeout: easyConnectRawRequestTimeout,
-		twfID:             options.SessionID,
-		lifecycleCtx:      lifecycleCtx,
-		lifecycleCancel:   lifecycleCancel,
-		graphCodeFile:     options.Auth.GraphCodeFile,
-		challengeHandler:  challengeHandler,
+		failures:            make(chan error, 1),
+		passwordProvider:    options.Auth.PasswordProvider,
+		tlsPolicy:           options.TLSPolicy,
+		allowLegacyTLS:      options.AllowLegacyTLS,
+		server:              options.Server,
+		username:            options.Auth.Username,
+		password:            options.Auth.Password,
+		totpSecret:          options.Auth.TOTPSecret,
+		tlsCert:             options.Auth.Certificate,
+		testMultiLine:       options.TestMultiLine,
+		parseResource:       options.Resources.Fetch,
+		useDomainResource:   options.Resources.IncludeDomains,
+		resourceDiagnostics: options.Resources.Diagnostics,
+		httpClient:          &http.Client{Timeout: easyConnectHTTPTimeout},
+		underlayDialer:      options.UnderlayDialer,
+		tlsKeyLogWriter:     options.TLSKeyLogWriter,
+		rawRequestTimeout:   easyConnectRawRequestTimeout,
+		twfID:               options.SessionID,
+		lifecycleCtx:        lifecycleCtx,
+		lifecycleCancel:     lifecycleCancel,
+		graphCodeFile:       options.Auth.GraphCodeFile,
+		challengeHandler:    challengeHandler,
 	}
 	c.setHTTPTransport(&tls.Config{})
 	c.httpClient.CheckRedirect = bounded.AuthRedirect

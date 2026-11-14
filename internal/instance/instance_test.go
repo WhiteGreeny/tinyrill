@@ -3,6 +3,7 @@ package instance
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/mythologyli/zju-connect/configs"
+	"github.com/mythologyli/zju-connect/internal/resourcediag"
 	"github.com/mythologyli/zju-connect/internal/securefile"
 	"github.com/mythologyli/zju-connect/internal/state"
 )
@@ -22,6 +24,39 @@ func testProfile(t *testing.T) configs.Profile {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func TestResourceDiagnosticsAreOptInAndSeparateFromStatus(t *testing.T) {
+	p := testProfile(t)
+	var out, diagnostic bytes.Buffer
+	f := &CLIFrontend{Profile: p, Output: &out, Diagnostic: &diagnostic}
+	if f.ResourceDiagnostics() != nil {
+		t.Fatal("diagnostic enabled by default")
+	}
+	directory, err := state.Acquire(p.Session.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	f.DebugResources = true
+	f.ResourceDiagnostics()(resourcediag.ATrust([]byte(`{"data":{"appList":{"data":{"appInfo":[{"apps":[{"name":"PRIVATE_NAME"}]}]}}}}`)))
+	data, err := os.ReadFile(filepath.Join(p.Session.StateDir, "resource-fields.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report resourcediag.Report
+	if err := json.Unmarshal(data, &report); err != nil || !report.ValuesOmitted || report.CapturedAt == "" || bytes.Contains(data, []byte("PRIVATE_NAME")) {
+		t.Fatalf("bad diagnostic file: %s", data)
+	}
+	if out.Len() != 0 || !bytes.Contains(diagnostic.Bytes(), []byte("resource-fields.json")) {
+		t.Fatal("diagnostic mixed with stdout or path not reported")
+	}
+	// A second capture replaces the old report instead of accumulating a log.
+	f.ResourceDiagnostics()(resourcediag.ATrust([]byte(`{"data":{}}`)))
+	data, _ = os.ReadFile(filepath.Join(p.Session.StateDir, "resource-fields.json"))
+	if bytes.Contains(data, []byte("apps[].name")) {
+		t.Fatal("old diagnostic content retained")
+	}
 }
 
 func TestRunDetectsStateAndPortConflictsBeforeAuthentication(t *testing.T) {

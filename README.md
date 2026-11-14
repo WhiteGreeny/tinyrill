@@ -22,6 +22,8 @@ aTrust 的 `auth-info` 查询网关支持的认证域和方式，不执行登录
 
 连接就绪后默认展示最多 20 条授权资源及代理监听地址。添加 `--resources full` 查看完整的域名/IP、端口和协议列表，或 `--resources none` 关闭展示。列表说明授权范围，未探测业务可达性；UDP/ICMP 条目不能通过当前 TCP 代理访问。
 
+需要协助定位资源名称字段时，可使用后续诊断构建的 `--resource-debug` 导出省略字段值的结构样本，见 [资源名称字段诊断](docs/resource-diagnostics.md)。原 RC2 不包含此开关。
+
 ## 认证与密码
 
 密码通过终端隐藏输入；无人值守时可设置 `auth.secret_file`，由部署方提供只读文件。文件包含一行密码，末尾换行会移除，密码本身的空格会保留。TOTP 种子和证书口令分别用 `totp_secret_file`、`certificate_password_file` 引用。

@@ -3,9 +3,11 @@ package atrust
 import (
 	"encoding/json"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/mythologyli/zju-connect/client"
+	"github.com/mythologyli/zju-connect/internal/resourcediag"
 )
 
 func TestParseResourcePreservesMultipleRulesForDomain(t *testing.T) {
@@ -39,6 +41,22 @@ func TestParseResourcePreservesMultipleRulesForDomain(t *testing.T) {
 	}
 	if got, ok := client.MatchDomainResource(rules, "tcp", 80); !ok || got.AppID != "http-app" || got.NodeGroupID != "http-group" {
 		t.Fatalf("80 rule = (%#v, %v), want http app metadata", got, ok)
+	}
+}
+
+func TestResourceDiagnosticObservesUnknownNameFieldWithoutChangingRules(t *testing.T) {
+	var report resourcediag.Report
+	c := NewClient(ClientOptions{ResourceDiagnostics: func(value resourcediag.Report) { report = value }})
+	defer c.Close()
+	if err := c.parseResource([]byte(`{"data":{"appList":{"data":{"appInfo":[{"apps":[{"displayName":"PRIVATE_NAME","id":"app-id","accessModel":"L3VPN","addressList":[{"protocol":"tcp","port":"443","host":"app.example"}]}]}]}}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(report)
+	if !strings.Contains(string(data), ".displayName") || strings.Contains(string(data), "PRIVATE_NAME") || strings.Contains(string(data), "app.example") {
+		t.Fatalf("bad diagnostic: %s", data)
+	}
+	if _, ok := client.MatchDomainResource(c.domainResources["app.example"], "tcp", 443); !ok {
+		t.Fatal("diagnostic changed resource rules")
 	}
 }
 

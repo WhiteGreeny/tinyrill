@@ -9,6 +9,7 @@ import (
 	"github.com/beevik/etree"
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/internal/bounded"
+	"github.com/mythologyli/zju-connect/internal/resourcediag"
 	"github.com/mythologyli/zju-connect/log"
 	"inet.af/netaddr"
 )
@@ -99,6 +100,9 @@ func (c *Client) parseResources(resources string) error {
 		return errors.New("no Resource element found")
 	}
 	element := root.SelectElement("Rcs")
+	if c.resourceDiagnostics != nil {
+		c.resourceDiagnostics(resourcediag.EasyConnect(element))
+	}
 	if element == nil {
 		return errors.New("no Rcs element found")
 	}

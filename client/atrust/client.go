@@ -19,6 +19,7 @@ import (
 	"github.com/mythologyli/zju-connect/client/authchallenge"
 	"github.com/mythologyli/zju-connect/internal/ipresource"
 	"github.com/mythologyli/zju-connect/internal/keylog"
+	"github.com/mythologyli/zju-connect/internal/resourcediag"
 	"github.com/mythologyli/zju-connect/internal/tlspolicy"
 	"github.com/mythologyli/zju-connect/log"
 	"github.com/mythologyli/zju-connect/underlay"
@@ -34,10 +35,11 @@ type SessionOptions struct {
 }
 
 type ClientOptions struct {
-	TLSPolicy       *tlspolicy.Policy
-	Session         SessionOptions
-	UnderlayDialer  client.UnderlayDialer
-	TLSKeyLogWriter io.Writer
+	TLSPolicy           *tlspolicy.Policy
+	Session             SessionOptions
+	UnderlayDialer      client.UnderlayDialer
+	TLSKeyLogWriter     io.Writer
+	ResourceDiagnostics resourcediag.Observer
 }
 
 type SetupOptions struct {
@@ -92,28 +94,30 @@ type Client struct {
 	l3Tunnel   *L3Tunnel
 	l3TunnelMu sync.Mutex
 
-	lifecycleCtx     context.Context
-	lifecycleCancel  context.CancelFunc
-	closeOnce        sync.Once
-	underlayDialer   client.UnderlayDialer
-	tlsKeyLogWriter  io.Writer
-	tcpTunnelZeroRTT bool
+	lifecycleCtx        context.Context
+	lifecycleCancel     context.CancelFunc
+	closeOnce           sync.Once
+	underlayDialer      client.UnderlayDialer
+	tlsKeyLogWriter     io.Writer
+	tcpTunnelZeroRTT    bool
+	resourceDiagnostics resourcediag.Observer
 }
 
 func NewClient(options ClientOptions) *Client {
 	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 	return &Client{
-		failures:        make(chan error, 1),
-		tlsPolicy:       options.TLSPolicy,
-		Username:        options.Session.Username,
-		SID:             options.Session.SID,
-		DeviceID:        options.Session.DeviceID,
-		MACAddresses:    options.Session.MACAddresses,
-		SignKey:         options.Session.SignKey,
-		underlayDialer:  options.UnderlayDialer,
-		tlsKeyLogWriter: options.TLSKeyLogWriter,
-		lifecycleCtx:    lifecycleCtx,
-		lifecycleCancel: lifecycleCancel,
+		failures:            make(chan error, 1),
+		tlsPolicy:           options.TLSPolicy,
+		Username:            options.Session.Username,
+		SID:                 options.Session.SID,
+		DeviceID:            options.Session.DeviceID,
+		MACAddresses:        options.Session.MACAddresses,
+		SignKey:             options.Session.SignKey,
+		underlayDialer:      options.UnderlayDialer,
+		tlsKeyLogWriter:     options.TLSKeyLogWriter,
+		resourceDiagnostics: options.ResourceDiagnostics,
+		lifecycleCtx:        lifecycleCtx,
+		lifecycleCancel:     lifecycleCancel,
 	}
 }
 

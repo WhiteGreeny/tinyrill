@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/mythologyli/zju-connect/client/authchallenge"
 	"github.com/mythologyli/zju-connect/configs"
 	"github.com/mythologyli/zju-connect/internal/credentials"
+	"github.com/mythologyli/zju-connect/internal/resourcediag"
 	"github.com/mythologyli/zju-connect/internal/securefile"
 	"github.com/mythologyli/zju-connect/internal/terminal"
 	"github.com/mythologyli/zju-connect/log"
@@ -23,6 +25,7 @@ type CLIFrontend struct {
 	Profile               configs.Profile
 	Output, Diagnostic    io.Writer
 	ResourceMode          string
+	DebugResources        bool
 	store                 *credentials.Store
 	password              string
 	loaded, authenticated bool
@@ -32,6 +35,26 @@ type CLIFrontend struct {
 }
 
 func (f *CLIFrontend) Status(s Status) { _ = json.NewEncoder(f.Output).Encode(s) }
+
+func (f *CLIFrontend) ResourceDiagnostics() resourcediag.Observer {
+	if !f.DebugResources {
+		return nil
+	}
+	return func(report resourcediag.Report) {
+		report.CapturedAt = time.Now().UTC().Format(time.RFC3339)
+		data, err := json.MarshalIndent(report, "", "  ")
+		path := filepath.Join(f.Profile.Session.StateDir, "resource-fields.json")
+		if err == nil {
+			err = securefile.Write(path, append(data, '\n'))
+		}
+		if err != nil {
+			log.Println("Unable to save resource field diagnostic; VPN setup will continue")
+		} else if f.Diagnostic != nil {
+			fmt.Fprintf(f.Diagnostic, "Resource field diagnostic saved (values omitted): %s\n", terminal.SafeText(path))
+		}
+	}
+}
+
 func (f *CLIFrontend) prompt(ctx context.Context, label string) (string, error) {
 	timeout, err := time.ParseDuration(f.Profile.Auth.Timeout)
 	if err != nil || timeout <= 0 {
