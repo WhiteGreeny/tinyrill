@@ -37,6 +37,12 @@ Windows 全量测试（WSL 交叉编译后在 Windows 执行）、Linux 全量 r
 
 Windows 全量测试、Linux 全量 race/vet 通过，新增测试覆盖中文/XML 实体、域名/IP/范围、空名称、显示去重、终端控制字符以及诊断截断不影响实际资源完整性。两平台源码/二进制与镜像扫描均为 0 条发现，归档校验、许可原件、受限镜像启动和重新导入通过。已生成 [RC3 交付包](candidate-0.1.0-rc.3.md)，程序固定于 `4b25fe2b6e9c607018c323bac8350e3a41889005`；实际网关名称显示效果待用户确认。
 
+## 2026-11-14 资源原值诊断
+
+收到用户的 aTrust 字段结构样本后，按用户要求增加 `--resource-debug-values`，将完整资源分支及未知字段写入私有本地文件，供用户人工筛选。aTrust 输出包含分组/应用上下文的 JSON，EC 输出保留属性和文本的 XML；原结构诊断仍省略值，原值导出默认关闭，不据字段名称新增 aTrust 展示映射。
+
+Windows 全量回归与 Linux 全量 race/vet 通过；两平台运行包、源码与验证附件的对应关系、文件校验、许可、版本/帮助/示例配置及 govulncheck 通过。原生诊断包 `0.1.0-rc.3-diagnostic.1` 固定于 `cb12a46fbd016bf176659276fef995021f7376af`，没有重建容器镜像，详见 [资源诊断交付记录](resource-diagnostics.md)。
+
 ## 本机验证环境
 
 Windows 11 amd64 与 Ubuntu 26.04 WSL。Go 工具链固定 1.27.4；WSL 为验证准备了 GCC、Podman 和隔离 Keyring 环境。Windows 全量测试完成后，Defender 在 2026-11-13 17:44 拦截了自动下载工具链目录中的 go.exe，后续构建/扫描转到 WSL；未修改 Defender 设置或添加排除。该环境问题与候选程序的测试结果分别记录，后续直接在 Windows 执行 go 命令需先处理官方工具链的安全软件拦截。

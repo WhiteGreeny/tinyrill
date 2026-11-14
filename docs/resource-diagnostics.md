@@ -29,7 +29,7 @@ Linux 使用 `./tinyrill`。该开关单独使用即可，同时生成原有结�
 
 ## 仅导出字段结构
 
-RC3 已包含此诊断开关，正常展示 EC 名称无需开启。需要继续采集字段时，使用 RC3 或原诊断构建，继续引用自己的客户 YAML：
+RC3 已包含 `--resource-debug` 结构诊断开关，正常展示 EC 名称无需开启。需要继续采集字段时，使用 RC3 或原诊断构建，继续引用自己的客户 YAML：
 
 ```powershell
 ./tinyrill.exe run --config /path/to/customer.yaml --resource-debug
@@ -49,7 +49,18 @@ EC 采集范围是 `Resource/Rcs`；aTrust 是 `data.appList.data.appInfo`。诊
 
 该开关默认关闭；不修改资源访问规则，不增加网关请求。报告使用私有文件权限，下次采集会覆盖旧报告；报告写入失败会提示，VPN 初始化继续。停止使用开关后不会生成新报告，已有报告可自行删除。
 
-## 本地诊断包
+## 原值诊断包交付
+
+2026-11-14，已生成 `0.1.0-rc.3-diagnostic.1` Windows/Linux amd64 原生包，目录为 `dist/0.1.0-rc.3-diagnostic.1/`，程序与对应源码固定于 `cb12a46fbd016bf176659276fef995021f7376af`。目录内 `DELIVERY.md` 提供运行包、验证附件和源码入口；`verification.json` 与 `SHA256SUMS` 保存验证结果及整体校验。
+
+Windows 全量回归、Linux 全量 race/vet 通过，覆盖完整资源原值、未知字段、分组/应用关系、数值精度、大型/深层资源、私有权限、原子覆盖、写入失败、默认关闭、日志/状态隔离和授权规则保持。两平台归档、源码对应关系、许可原件、版本/帮助/示例配置检查通过，源码及实际二进制 govulncheck 均为 0 条发现。本次没有重建容器镜像；实际资源值仍由用户在客户环境导出并筛选。
+
+```text
+1ac81358bbda62a07025e4c3793c1126e95149bbdceb73b8b239194298875e08  tinyrill-0.1.0-rc.3-diagnostic.1-windows-amd64.zip
+57bbc3c72aaa3194876852d9fdad6559584a2a1e2ac4d0a45bd1e1eba1660850  tinyrill-0.1.0-rc.3-diagnostic.1-linux-amd64.tar.gz
+```
+
+## 早期字段结构诊断包
 
 2026-11-14 已生成 Windows/Linux amd64 诊断包，位于 `dist/0.1.0-rc.2-diagnostic.1/`。程序与对应源码固定于 `aaf9f075633d21bf8d5c950480f3abff69d61e39`；目录中的 `DELIVERY.md` 提供运行包、源码、验证附件和校验入口。原 RC2 产物保留。
 
