@@ -31,4 +31,6 @@ Windows 11 amd64 与 Ubuntu 26.04 WSL。Go 工具链固定 1.27.4；WSL 为验�
 
 ## 外部验收
 
-用户已明确安排实际客户验收。以下尚未验证，不能作为已支持能力发布：实际 EC 7.6.3、EC 7.6.7、aTrust 客户网关与业务；macOS 原生 Keychain；三个真实客户并行与 8 小时稳定性。Linux Secret Service 和 rootless Podman 的可控运行已经验证，但不代替真实客户端到端测试。客户凭据不进入仓库或日志。
+2026-11-14，用户确认 Windows 和 Linux 均已通过本轮实测验收：密码登录、SOCKS 代理，以及 Windows 密码凭据保存/记住密码和点选验证码均通过。用户报告连接稳定，Windows 任务管理器中内存约 10 MB；具体统计列、负载和持续时长未记录。详细记录见 [验收表](acceptance.md)。
+
+本轮网关类型与版本、Linux 部署方式、实际运行版本/提交待补充，因此 EC 7.6.3、EC 7.6.7、aTrust 的逐项兼容矩阵仍需按实际场景登记。macOS 原生 Keychain、三个真实客户并行、8 小时业务与至少 60 分钟空闲恢复仍待验证。Linux Secret Service 和 rootless Podman 已有可控运行结果，容器客户业务验收另行记录。客户凭据不进入仓库或日志。
