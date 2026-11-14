@@ -1,35 +1,26 @@
 ---
-name: Feature Request
-about: 向 zju-connect 提出建议/功能请求
+name: Feature request
+about: 向 tinyrill 提出改进建议
 title: ''
 labels: enhancement
-assignees: Mythologyli
-
+assignees: ''
 ---
 
-**提交之前**
+请先查看 README 中的支持范围与已有 Issues。请勿包含客户凭据、令牌、私有网关地址或业务数据。
 
-在提交报告之前，请确保：
-+ 你正在使用 [Release](https://github.com/Mythologyli/zju-connect/releases) 中的最新版本
-+ 如果你可以访问 CC98，请确保你已经阅读过以下说明：
-    + [使用 ZJU Connect 代替 EasyConnect 提升你的 RVPN 体验](https://www.cc98.org/topic/5521873)
-    + [端口转发、定时保活、自动选线、密码保存](https://www.cc98.org/topic/5570875)
-+ 你已搜索过现有的 [Issues](https://github.com/Mythologyli/zju-connect/issues?q=is%3Aissue) 并且未发现重复
+**使用版本与场景**
 
-**确认无误后，请删除下方横线及以上内容。之后，请修改下方的模版并提交功能请求**
+- tinyrill 版本、操作系统及架构：
+- 原生 / rootless Podman；EC / aTrust（若相关）：
 
----
+**希望解决的问题**
 
-**软件版本**
-v0.4.0
+描述当前操作、遇到的限制，以及对工作的影响。
 
-**使用环境**
-Windows 10 x64/Windows 11/Ubuntu 22.04/OpenWrt 22.03/Docker/...
+**期望行为与验收方式**
 
-**服务端地址**
-rvpn.zju.edu.cn:443
+描述改进后如何使用，如何判断满足需求。
 
-**服务端版本** (例如 `M7.6.8R2`。查看日志中的 `VPN server version`)
+**当前替代办法**
 
-
-**功能请求描述** (建议结合图片说明)
+若有现成配置、代理软件或其他办法，请说明其不足。

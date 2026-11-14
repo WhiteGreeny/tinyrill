@@ -9,7 +9,6 @@ import (
 
 	clientpkg "github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/internal/ippool"
-	"github.com/mythologyli/zju-connect/internal/zcdns"
 	"github.com/mythologyli/zju-connect/log"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -27,7 +26,6 @@ type Stack struct {
 	readDone                 chan struct{}
 	failures                 chan error
 	gvisorStack              *stack.Stack
-	resolve                  zcdns.LocalServer
 	ipPool                   *ippool.IPPool[[]clientpkg.DomainResource]
 
 	endpoint *Endpoint
@@ -212,10 +210,6 @@ func (s *Stack) updateIP(ip net.IP) error {
 	}
 	s.ip = newAddr
 	return nil
-}
-
-func (s *Stack) SetupResolve(r zcdns.LocalServer) {
-	s.resolve = r
 }
 
 func (s *Stack) SetupIPPool(ipPool *ippool.IPPool[[]clientpkg.DomainResource]) {

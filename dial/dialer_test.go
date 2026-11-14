@@ -9,7 +9,6 @@ import (
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/internal/ippool"
 	"github.com/mythologyli/zju-connect/internal/ipresource"
-	"github.com/mythologyli/zju-connect/internal/zcdns"
 	"github.com/mythologyli/zju-connect/resolve"
 )
 
@@ -113,7 +112,6 @@ func TestIPResourceDoesNotCarryUnmatchedDomainAuthorization(t *testing.T) {
 }
 
 func (s *capturingStack) Run()                                                {}
-func (s *capturingStack) SetupResolve(zcdns.LocalServer)                      {}
 func (s *capturingStack) SetupIPPool(*ippool.IPPool[[]client.DomainResource]) {}
 func (s *capturingStack) DialTCP(ctx context.Context, _ *net.TCPAddr) (net.Conn, error) {
 	s.calls++

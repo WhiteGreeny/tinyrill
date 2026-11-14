@@ -9,7 +9,6 @@ import (
 
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/internal/ippool"
-	"github.com/mythologyli/zju-connect/internal/zcdns"
 )
 
 type failingVPNStack struct {
@@ -18,7 +17,6 @@ type failingVPNStack struct {
 }
 
 func (*failingVPNStack) Run()                                                {}
-func (*failingVPNStack) SetupResolve(zcdns.LocalServer)                      {}
 func (*failingVPNStack) SetupIPPool(*ippool.IPPool[[]client.DomainResource]) {}
 func (s *failingVPNStack) fail(address string) (net.Conn, error) {
 	s.mu.Lock()

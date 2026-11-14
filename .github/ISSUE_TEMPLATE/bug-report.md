@@ -1,53 +1,39 @@
 ---
-name: Bug Report
-about: 报告 zju-connect 中存在的错误
+name: Bug report
+about: 报告 tinyrill 的认证、代理或运行问题
 title: ''
 labels: bug
-assignees: Mythologyli
-
+assignees: ''
 ---
 
-**提交之前**
+请先查看 README、docs/configuration.md 和已有 Issues。诊断材料按最小必要范围提供：请勿提交密码、短信/TOTP、令牌、Cookie、客户端证书、状态目录、凭据库、验证码原图/链接或未经处理的抓包；客户域名和 IP 可用一致的占位符替换。
 
-在提交报告之前，请确保：
-+ 你正在使用 [Release](https://github.com/Mythologyli/zju-connect/releases) 中的最新版本
-+ 如果你可以访问 CC98，请确保你已经阅读过以下说明：
-    + [使用 ZJU Connect 代替 EasyConnect 提升你的 RVPN 体验](https://www.cc98.org/topic/5521873)
-    + [端口转发、定时保活、自动选线、密码保存](https://www.cc98.org/topic/5570875)
-+ 如果你是非 ZJU 用户，请确保你使用如下启动参数时仍然有误：`zju-connect -server <服务器地址> -port <服务器端口> -username xxx -password xxx -disable-keep-alive -disable-zju-config -skip-domain-resource -zju-dns-server auto`
-+ 你已搜索过现有的 [Issues](https://github.com/Mythologyli/zju-connect/issues?q=is%3Aissue) 并且未发现重复
+**版本与环境**
 
-**确认无误后，请删除下方横线及以上内容。之后，请修改下方的模版并提交报告**
+- `tinyrill version` 输出（包含版本、提交、平台和 Go 版本）：
+- 操作系统及架构：
+- 原生 / rootless Podman（容器请补充 Podman 版本与镜像版本）：
+- EC / aTrust 与网关版本（若已知，无需填写实际网关地址）：
+- 认证方式：密码 / 短信 / 证书 / CAS / OAuth2；是否有验证码：
 
----
+**问题与预期行为**
 
-**软件版本**
-v0.4.0
+**最小复现步骤**
 
-**使用环境**
-Windows 10 x64/Windows 11/Ubuntu 22.04/OpenWrt 22.03/Docker/...
+1. 使用的命令（例如 `tinyrill run --config customer.yaml`）：
+2. 出错阶段、频率、退出码：
+3. HTTP / SOCKS5 入口，使用 IP 或域名，资源列表是否包含目标：
 
-**服务端地址**
-rvpn.zju.edu.cn:443
+**脱敏配置**
 
-**服务端版本** (例如 `M7.6.8R2`。查看日志中的 `VPN server version`)
+仅提供有关的 YAML 字段；保留字段名，用占位符替换客户信息。不要添加明文 password 字段。
 
-
-**故障描述** (建议结合图片说明)
-
-
-**重现方法**
-
-
-**预期行为**
-
-
-**日志**
-```
-在此粘贴
+```yaml
 ```
 
-**配置文件或启动参数** (请去除敏感信息)
-```
-在此粘贴
+**脱敏日志或截图**
+
+提供故障前后必要的 stdout 状态和 stderr 诊断，并再次检查客户资源与认证信息。需要关闭资源列表时使用 `--resources none`。
+
+```text
 ```
