@@ -2,7 +2,7 @@
 
 面向多客户场景的 EC / aTrust 精简客户端，fork 自 [zju-connect](https://github.com/Mythologyli/zju-connect)。每个进程连接一个客户，提供 HTTP 代理和 SOCKS5 TCP CONNECT；应用选择和系统流量接管交给上层代理软件。
 
-当前本地候选为 `0.1.0-rc.3`，根据用户提供的真实 EC 字段样本补齐资源名称展示；包含 Windows/Linux amd64 原生包、独立验证附件、源码与 rootless Podman 镜像，见 [RC3 交付记录](docs/candidate-0.1.0-rc.3.md)。运行包仍为 7 个文件，[RC2](docs/candidate-0.1.0-rc.2.md) 等旧归档保留用于回退。2026-11-14，用户已反馈此前 Windows/Linux 实测通过，覆盖密码登录、SOCKS 代理，以及 Windows 凭据保存/记住密码和点选验证码，连接稳定；新增资源名称的本机回归与客户实测分开记录。详见 [验收记录](docs/acceptance.md)、[实施记录](docs/implementation-status.md) 和 [完整方案](docs/ec-atrust-fork-plan.md)。
+当前本地候选为 `0.1.0-rc.4`，按用户确认接入 aTrust 分组/应用的名称和描述，以及 EC 的备注；包含 Windows/Linux amd64 原生包、独立验证附件、源码与 rootless Podman 镜像，见 [RC4 交付记录](docs/candidate-0.1.0-rc.4.md)。运行包仍为 7 个文件，[RC3](docs/candidate-0.1.0-rc.3.md) 等旧归档保留用于回退。2026-11-14，用户已反馈此前 Windows/Linux 实测通过，覆盖密码登录、SOCKS 代理，以及 Windows 凭据保存/记住密码和点选验证码，连接稳定；新增资源说明的本机回归与客户实测分开记录。详见 [验收记录](docs/acceptance.md)、[实施记录](docs/implementation-status.md) 和 [完整方案](docs/ec-atrust-fork-plan.md)。
 
 ## 运行
 
@@ -22,9 +22,9 @@ aTrust 的 `auth-info` 查询网关支持的认证域和方式，不执行登录
 
 连接就绪后默认展示最多 20 条授权资源及代理监听地址。添加 `--resources full` 查看完整列表，或 `--resources none` 关闭展示。从 RC4 起，`RESOURCE` 列分别显示 aTrust 的应用名称/描述、分组名称/描述，或 EC 的名称/备注；名称为空时仍显示非空描述或备注，所有说明字段都为空才显示 `-`。各字段独立保留，不参与授权匹配。列表说明授权范围，未探测业务可达性；UDP/ICMP 条目不能通过当前 TCP 代理访问。
 
-需要协助定位资源名称字段时，可使用 RC3 的 `--resource-debug` 导出省略字段值的结构样本，见 [资源名称字段诊断](docs/resource-diagnostics.md)。正常展示名称无需开启诊断；原 RC2 不包含此开关。
+需要协助定位资源字段时，可使用 `--resource-debug` 导出省略字段值的结构样本，见 [资源名称字段诊断](docs/resource-diagnostics.md)。正常展示资源说明无需开启诊断。
 
-需要自行查看实际字段值时，使用 `0.1.0-rc.3-diagnostic.1` 的 `--resource-debug-values`，将完整资源分支写入状态目录供人工筛选。aTrust 保存为 `resource-values.json`，EC 保存为 `resource-values.xml`；普通 debug 和原结构诊断不会启用原值导出。文件包含客户资源原值，分享前请自行筛选。
+需要自行查看完整字段值时，RC4 也包含此前诊断构建的 `--resource-debug-values`，将完整资源分支写入状态目录供人工筛选。aTrust 保存为 `resource-values.json`，EC 保存为 `resource-values.xml`；普通 debug 和结构诊断不会启用原值导出。文件包含客户资源原值，分享前请自行筛选。
 
 ## 认证与密码
 
