@@ -121,6 +121,10 @@ try {
     New-Item -ItemType Directory $licensesDir | Out-Null
     $goroot = (go env GOROOT).Trim()
     [IO.File]::WriteAllBytes((Join-Path $licensesDir 'Go-LICENSE'),[IO.File]::ReadAllBytes((Join-Path $goroot 'LICENSE')))
+    # This retained TCP probe was copied into the repo, so go list cannot discover its notice.
+    $embeddedNoticeDir = Join-Path $licensesDir 'embedded/internal/ping'
+    New-Item -ItemType Directory -Force $embeddedNoticeDir | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $embeddedNoticeDir 'LICENSE'),[IO.File]::ReadAllBytes((Join-Path $repo 'internal/ping/LICENSE')))
     $moduleLines = go list -deps -f '{{with .Module}}{{.Path}}|{{.Version}}|{{.Main}}|{{if .Replace}}{{.Replace.Path}}|{{.Replace.Version}}|{{.Replace.Dir}}{{else}}{{.Path}}|{{.Version}}|{{.Dir}}{{end}}{{end}}' .
     $licenseIndex = foreach ($line in ($moduleLines | Where-Object { $_ } | Sort-Object -Unique)) {
         # Module identities cannot contain |; the last field retains any | in a local directory.
