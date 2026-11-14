@@ -23,26 +23,32 @@ type UnderlayDialer interface {
 }
 
 type IPResource struct {
-	Name            string // Optional display metadata; not used for authorization.
-	IPMin           net.IP
-	IPMax           net.IP
-	PortMin         int
-	PortMax         int
-	Protocol        string
-	AppID           string
-	NodeGroupID     string
-	EnableTCPPrefL3 bool
+	// Optional display metadata; never used for authorization.
+	Name, Description           string
+	GroupName, GroupDescription string
+	Note                        string
+	IPMin                       net.IP
+	IPMax                       net.IP
+	PortMin                     int
+	PortMax                     int
+	Protocol                    string
+	AppID                       string
+	NodeGroupID                 string
+	EnableTCPPrefL3             bool
 }
 
 type DomainResource struct {
-	Name            string // Optional display metadata; not used for authorization.
-	PortMin         int
-	PortMax         int
-	Protocol        string
-	AppID           string
-	NodeGroupID     string
-	EnableTCPPrefL3 bool
-	AddrPretend     bool
+	// Optional display metadata; never used for authorization.
+	Name, Description           string
+	GroupName, GroupDescription string
+	Note                        string
+	PortMin                     int
+	PortMax                     int
+	Protocol                    string
+	AppID                       string
+	NodeGroupID                 string
+	EnableTCPPrefL3             bool
+	AddrPretend                 bool
 }
 
 type DomainResources map[string][]DomainResource

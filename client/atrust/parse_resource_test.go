@@ -12,7 +12,7 @@ import (
 
 func TestParseResourcePreservesMultipleRulesForDomain(t *testing.T) {
 	var policy ClientResource
-	appInfo := struct{ Apps []resourceApp }{}
+	appInfo := resourceGroup{}
 	for _, rule := range []struct{ id, group, port string }{
 		{id: "https-app", group: "https-group", port: "443"},
 		{id: "http-app", group: "http-group", port: "80"},
@@ -41,6 +41,65 @@ func TestParseResourcePreservesMultipleRulesForDomain(t *testing.T) {
 	}
 	if got, ok := client.MatchDomainResource(rules, "tcp", 80); !ok || got.AppID != "http-app" || got.NodeGroupID != "http-group" {
 		t.Fatalf("80 rule = (%#v, %v), want http app metadata", got, ok)
+	}
+}
+
+func TestATrustResourceMetadataFollowsAllAddressForms(t *testing.T) {
+	resource := []byte(`{"data":{"appList":{"data":{"appInfo":[
+		{"name":"分组 A","description":"分组说明 A","apps":[
+			{"name":"应用 A","description":"  应用说明 & 100%+  ","id":"app-a","nodeGroupId":"routing-group","accessModel":"L3VPN","enableTCPPrefL3":true,"addrPretend":false,"addressList":[
+				{"protocol":"tcp","port":"443","host":"app.example","ip":["10.0.0.2"]},
+				{"protocol":"tcp","port":"8443","host":"10.1.0.2"},
+				{"protocol":"tcp","port":"80-81","host":"10.2.0.1-10.2.0.9"},
+				{"protocol":"tcp","port":"22","host":"10.3.0.0/24"}]},
+			{"name":"","description":"只有应用描述","id":"unnamed","accessModel":"L3VPN","addressList":[{"protocol":"tcp","port":"443","host":"unnamed.example"}]}]},
+		{"name":"","description":"只有分组描述","apps":[
+			{"name":"","description":"另一个分组中的应用","id":"app-b","accessModel":"L3VPN","addressList":[{"protocol":"tcp","port":"443","host":"app.example"}]}]}
+	]}}}}`)
+	c := &Client{}
+	if err := c.parseResource(resource); err != nil {
+		t.Fatal(err)
+	}
+	rules := c.domainResources["app.example"]
+	if len(rules) != 2 || rules[0].Name != "应用 A" || rules[0].Description != "  应用说明 & 100%+  " || rules[0].GroupName != "分组 A" || rules[0].GroupDescription != "分组说明 A" {
+		t.Fatalf("domain labels lost: %#v", rules)
+	}
+	if rules[0].AppID != "app-a" || rules[0].NodeGroupID != "routing-group" || !rules[0].EnableTCPPrefL3 || rules[0].AddrPretend {
+		t.Fatal("display metadata changed tunnel policy")
+	}
+	if rules[1].Name != "" || rules[1].Description != "另一个分组中的应用" || rules[1].GroupName != "" || rules[1].GroupDescription != "只有分组描述" || rules[1].AppID != "app-b" {
+		t.Fatal("descriptions were discarded or copied into empty names")
+	}
+	if got := c.domainResources["unnamed.example"]; len(got) != 1 || got[0].Name != "" || got[0].Description != "只有应用描述" || got[0].GroupName != "分组 A" {
+		t.Fatal("empty app name lost its description or parent group")
+	}
+	if len(c.ipResources) != 4 {
+		t.Fatalf("IP rules = %d, want DNS-derived, single, range and CIDR", len(c.ipResources))
+	}
+	for _, ip := range c.ipResources {
+		if ip.Name != rules[0].Name || ip.Description != rules[0].Description || ip.GroupName != rules[0].GroupName || ip.GroupDescription != rules[0].GroupDescription || ip.AppID != "app-a" || ip.NodeGroupID != "routing-group" || !ip.EnableTCPPrefL3 {
+			t.Fatalf("IP labels or routing metadata lost: %#v", ip)
+		}
+	}
+	if rule, ok := c.resourceIndex.Match(net.ParseIP("10.3.0.12"), "tcp", 22); !ok || rule.Name != "应用 A" || rule.GroupDescription != "分组说明 A" {
+		t.Fatal("CIDR index lost metadata or authorization")
+	}
+	if _, ok := client.MatchDomainResource(rules, "udp", 443); ok {
+		t.Fatal("labels expanded protocol authorization")
+	}
+	if _, ok := client.MatchDomainResource(rules, "tcp", 80); ok {
+		t.Fatal("labels expanded port authorization")
+	}
+}
+
+func TestATrustNonTextLabelsDoNotRejectAuthorization(t *testing.T) {
+	c := &Client{}
+	if err := c.parseResource([]byte(`{"data":{"appList":{"data":{"appInfo":[{"name":12,"description":null,"apps":[{"name":{},"description":false,"accessModel":"L3VPN","addressList":[{"protocol":"tcp","port":"443","host":"app.example"}]}]}]}}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	rule, ok := client.MatchDomainResource(c.domainResources["app.example"], "tcp", 443)
+	if !ok || rule.Name != "" || rule.Description != "" || rule.GroupName != "" || rule.GroupDescription != "" {
+		t.Fatalf("unexpected display label types affected authorization: %#v", rule)
 	}
 }
 
@@ -122,7 +181,7 @@ func TestParseResourceDoesNotOverrideTCPTunnelZeroRTT(t *testing.T) {
 
 func TestParseResourcePreservesTCPPrefL3ForDomainAndResolvedIP(t *testing.T) {
 	var policy ClientResource
-	policy.Data.AppList.Data.AppInfo = append(policy.Data.AppList.Data.AppInfo, struct{ Apps []resourceApp }{
+	policy.Data.AppList.Data.AppInfo = append(policy.Data.AppList.Data.AppInfo, resourceGroup{
 		Apps: []resourceApp{{
 			ID: "l3-app", NodeGroupID: "l3-group", AccessModel: "L3VPN", EnableTCPPrefL3: true,
 			AddressList: []resourceAddress{{Protocol: "tcp", Port: "443", Host: "internal.example", IP: []string{"10.0.0.42"}}},
@@ -161,7 +220,7 @@ func TestDomainTCPSelectionPrefersTCPTunnelResource(t *testing.T) {
 
 func TestParseResourceIgnoresUnsupportedAccessModel(t *testing.T) {
 	var policy ClientResource
-	policy.Data.AppList.Data.AppInfo = append(policy.Data.AppList.Data.AppInfo, struct{ Apps []resourceApp }{
+	policy.Data.AppList.Data.AppInfo = append(policy.Data.AppList.Data.AppInfo, resourceGroup{
 		Apps: []resourceApp{{
 			ID: "web-app", AccessModel: "WEB", AddressList: []resourceAddress{{Protocol: "tcp", Port: "443", Host: "10.0.0.42"}},
 		}},

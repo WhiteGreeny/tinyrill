@@ -4,7 +4,7 @@
 
 2026-11-14，用户提供的真实 EC 字段样本（采集时间 `2026-11-14T04:20:24Z`）确认存在 `Resource/Rcs/Rc/@name` 属性，RC3 据此接入名称展示。样本的 `truncated: true` 只表明诊断采样被截断；字段值被省略，因此不能据此保证名称非空或判断业务含义。
 
-随后提供的 aTrust 样本（采集时间 `2026-11-14T04:26:08Z`）同时包含 `appInfo[].name`、`appInfo[].workspaceName`、`appInfo[].apps[].name` 和两层 `description`。字段存在已经确认，其实际含义由用户查看原值后再确认；本轮不据字段名新增 aTrust 名称映射。
+随后提供的 aTrust 样本（采集时间 `2026-11-14T04:26:08Z`）同时包含 `appInfo[].name`、`appInfo[].workspaceName`、`appInfo[].apps[].name` 和两层 `description`。之后用户明确要求保留分组及应用两层的 `name` 和 `description`，并指出名称可能为空而描述有值；EC 另需保留 `note`。RC4 按此确认接入四个 aTrust 字段和 EC 的名称/备注，分别展示所有有值字段。`workspaceName` 继续保留在原值导出中，未新增到普通资源列表。
 
 ## 导出实际资源值
 
@@ -41,7 +41,7 @@ RC3 已包含 `--resource-debug` 结构诊断开关，正常展示 EC 名称无�
 
 取得资源后，终端会输出 `Resource field diagnostic saved (values omitted): ...` 和实际文件路径。文件名为 `resource-fields.json`，位于配置中的 `session.state_dir`；默认是配置目录下的 `state/<客户ID>/`。看到本次保存提示后，再检查该文件的 `captured_at`，确认不是此前留下的报告。
 
-文件只保存资源字段路径、类型、采集时间和采样状态，不保存字段的原值。EC 的 XML 路径 `Resource/Rcs/Rc/@name` 和 aTrust 的 `data.appList.data.appInfo[].apps[].name` 均已由用户样本确认存在；aTrust 还存在分组和工作空间的名称字段，实际业务含义待原值确认。
+文件只保存资源字段路径、类型、采集时间和采样状态，不保存字段的原值。EC 与 aTrust 的字段结构已由用户样本确认，当前展示字段及层级按用户后续确认接入，见 [资源展示映射](configuration.md)。
 
 EC 采集范围是 `Resource/Rcs`；aTrust 是 `data.appList.data.appInfo`。诊断受节点数、深度、字段数和采样数量限制；`truncated: true` 表示样本不完整，`filtered_names: true` 表示某些字段名未导出，`scope_found: false` 表示没有取得预期资源分支。不能凭一个不完整样本断言整个网关不提供资源名称。诊断采样上限不截断实际资源解析，已用超出采样数量的命名资源测试确认。
 

@@ -15,8 +15,10 @@ import (
 const resourceSummaryLimit = 20
 
 type resourceRow struct {
-	name, target, protocol string
-	portMin, portMax       int
+	name, description, note     string
+	groupName, groupDescription string
+	target, protocol            string
+	portMin, portMax            int
 }
 
 // Resources describes the parsed authorization rules without probing targets or
@@ -31,15 +33,26 @@ func (f *CLIFrontend) Resources(generation uint64, ips []client.IPResource, doma
 		if !ip.IPMin.Equal(ip.IPMax) {
 			target += " - " + ip.IPMax.String()
 		}
-		rows = append(rows, resourceRow{name: strings.TrimSpace(ip.Name), target: target, protocol: ip.Protocol, portMin: ip.PortMin, portMax: ip.PortMax})
+		rows = append(rows, resourceRow{
+			name: strings.TrimSpace(ip.Name), description: strings.TrimSpace(ip.Description), note: strings.TrimSpace(ip.Note),
+			groupName: strings.TrimSpace(ip.GroupName), groupDescription: strings.TrimSpace(ip.GroupDescription),
+			target: target, protocol: ip.Protocol, portMin: ip.PortMin, portMax: ip.PortMax,
+		})
 	}
 	for domain, resources := range domains {
 		for _, r := range resources {
-			rows = append(rows, resourceRow{name: strings.TrimSpace(r.Name), target: domain, protocol: r.Protocol, portMin: r.PortMin, portMax: r.PortMax})
+			rows = append(rows, resourceRow{
+				name: strings.TrimSpace(r.Name), description: strings.TrimSpace(r.Description), note: strings.TrimSpace(r.Note),
+				groupName: strings.TrimSpace(r.GroupName), groupDescription: strings.TrimSpace(r.GroupDescription),
+				target: domain, protocol: r.Protocol, portMin: r.PortMin, portMax: r.PortMax,
+			})
 		}
 	}
 	slices.SortFunc(rows, func(a, b resourceRow) int {
-		return cmp.Or(cmp.Compare(a.target, b.target), cmp.Compare(a.protocol, b.protocol), cmp.Compare(a.portMin, b.portMin), cmp.Compare(a.portMax, b.portMax), cmp.Compare(a.name, b.name))
+		return cmp.Or(cmp.Compare(a.target, b.target), cmp.Compare(a.protocol, b.protocol),
+			cmp.Compare(a.portMin, b.portMin), cmp.Compare(a.portMax, b.portMax),
+			cmp.Compare(a.groupName, b.groupName), cmp.Compare(a.groupDescription, b.groupDescription),
+			cmp.Compare(a.name, b.name), cmp.Compare(a.description, b.description), cmp.Compare(a.note, b.note))
 	})
 	rows = slices.Compact(rows) // Presentation only: distinct routing metadata is retained by the client.
 	tcp := 0
@@ -67,8 +80,9 @@ func (f *CLIFrontend) Resources(generation uint64, ips []client.IPResource, doma
 		shown = min(shown, resourceSummaryLimit)
 	}
 	table := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	// Names are last so wide Unicode labels do not shift the port/protocol columns.
-	fmt.Fprintln(table, "TARGET\tPROTOCOL\tPORTS\tTCP PROXY\tNAME")
+	// Metadata stays in the last column so wide Unicode text does not shift
+	// the address/port/protocol columns. Each field retains its own label.
+	fmt.Fprintln(table, "TARGET\tPROTOCOL\tPORTS\tTCP PROXY\tRESOURCE")
 	for _, row := range rows[:shown] {
 		ports := strconv.Itoa(row.portMin)
 		if row.portMin != row.portMax {
@@ -80,16 +94,32 @@ func (f *CLIFrontend) Resources(generation uint64, ips []client.IPResource, doma
 		} else if row.protocol == "icmp" {
 			ports = "-"
 		}
-		name := row.name
-		if name == "" {
-			name = "-"
+		details := row.details()
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", resourceText(row.target), resourceText(row.protocol), ports, access, details[0])
+		for _, detail := range details[1:] {
+			fmt.Fprintf(table, "\t\t\t\t%s\n", detail)
 		}
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", resourceText(row.target), resourceText(row.protocol), ports, access, resourceText(name))
 	}
 	_ = table.Flush()
 	if shown < len(rows) {
 		fmt.Fprintf(out, "Showing %d of %d entries. Start with --resources full to show all, or --resources none to hide.\n", shown, len(rows))
 	}
+}
+
+func (row resourceRow) details() []string {
+	details := make([]string, 0, 5)
+	for _, field := range []struct{ label, value string }{
+		{"Name", row.name}, {"Description", row.description}, {"Note", row.note},
+		{"Group name", row.groupName}, {"Group description", row.groupDescription},
+	} {
+		if field.value != "" {
+			details = append(details, field.label+": "+resourceText(field.value))
+		}
+	}
+	if len(details) == 0 {
+		details = append(details, "-")
+	}
+	return details
 }
 
 // Resource labels originate at the gateway. Keep each cell on one line and

@@ -58,17 +58,19 @@ func TestResourceDiagnosticStillOmitsPreservedNameValues(t *testing.T) {
 func TestECResourceNameFollowsEveryAddressAndKeepsAuthorizationRules(t *testing.T) {
 	c := &Client{useDomainResource: true}
 	if err := c.parseResources(`<Resource><Rcs>
-		<Rc name="财务 &amp; OA 100%+服务" type="1" proto="0" host="app.example;10.1.0.1;10.2.0.1~10.2.0.9" port="443~443;8443~8443;80~81"/>
-		<Rc name="另一系统" type="2" proto="0" host="app.example" port="443~443"/>
-		<Rc type="1" proto="0" host="unnamed.example" port="22~22"/>
+		<Rc name="财务 &amp; OA 100%+服务" note="  备注 &amp; 使用说明  " type="1" proto="0" host="app.example;10.1.0.1;10.2.0.1~10.2.0.9" port="443~443;8443~8443;80~81"/>
+		<Rc name="另一系统" note="另一备注" type="2" proto="0" host="app.example" port="443~443"/>
+		<Rc name="" note="只有备注" type="1" proto="0" host="unnamed.example" port="22~22"/>
+		<Rc type="1" proto="0" host="unlabeled.example" port="22~22"/>
 	</Rcs></Resource>`); err != nil {
 		t.Fatal(err)
 	}
 	const wantName = "财务 & OA 100%+服务"
-	if got := c.domainResources["app.example"]; len(got) != 2 || got[0].Name != wantName || got[1].Name != "另一系统" {
+	const wantNote = "  备注 & 使用说明  "
+	if got := c.domainResources["app.example"]; len(got) != 2 || got[0].Name != wantName || got[0].Note != wantNote || got[1].Name != "另一系统" || got[1].Note != "另一备注" {
 		t.Fatalf("domain names = %#v", got)
 	}
-	if len(c.ipResources) != 2 || c.ipResources[0].Name != wantName || c.ipResources[1].Name != wantName {
+	if len(c.ipResources) != 2 || c.ipResources[0].Name != wantName || c.ipResources[1].Name != wantName || c.ipResources[0].Note != wantNote || c.ipResources[1].Note != wantNote {
 		t.Fatalf("IP names = %#v", c.ipResources)
 	}
 	if c.ipResources[0].PortMin != 8443 || !c.ipResources[1].IPMin.Equal(net.ParseIP("10.2.0.1")) || !c.ipResources[1].IPMax.Equal(net.ParseIP("10.2.0.9")) || c.ipResources[1].PortMin != 80 || c.ipResources[1].PortMax != 81 {
@@ -83,8 +85,11 @@ func TestECResourceNameFollowsEveryAddressAndKeepsAuthorizationRules(t *testing.
 	if _, ok := client.MatchDomainResource(c.domainResources["app.example"], "tcp", 80); ok {
 		t.Fatal("name changed port authorization")
 	}
-	if got := c.domainResources["unnamed.example"]; len(got) != 1 || got[0].Name != "" {
-		t.Fatal("missing name should preserve the address rule")
+	if got := c.domainResources["unnamed.example"]; len(got) != 1 || got[0].Name != "" || got[0].Note != "只有备注" {
+		t.Fatal("empty name must retain the note separately")
+	}
+	if got := c.domainResources["unlabeled.example"]; len(got) != 1 || got[0].Name != "" || got[0].Note != "" {
+		t.Fatal("missing name and note should preserve the address rule")
 	}
 }
 

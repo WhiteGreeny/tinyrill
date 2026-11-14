@@ -18,9 +18,7 @@ type ClientResource struct {
 	Data struct {
 		AppList struct {
 			Data struct {
-				AppInfo []struct {
-					Apps []resourceApp
-				}
+				AppInfo []resourceGroup
 
 				Config struct {
 					NodeGroupConf struct {
@@ -65,13 +63,19 @@ type ClientResource struct {
 	}
 }
 
+type resourceGroup struct {
+	Name, Description resourceLabel
+	Apps              []resourceApp
+}
+
 type resourceApp struct {
-	ID              string
-	NodeGroupID     string
-	AccessModel     string
-	EnableTCPPrefL3 bool
-	AddrPretend     any `json:"addrPretend"`
-	AddressList     []resourceAddress
+	Name, Description resourceLabel
+	ID                string
+	NodeGroupID       string
+	AccessModel       string
+	EnableTCPPrefL3   bool
+	AddrPretend       any `json:"addrPretend"`
+	AddressList       []resourceAddress
 }
 
 type resourceAddress struct {
@@ -79,6 +83,19 @@ type resourceAddress struct {
 	Port     string
 	Host     string
 	IP       []string
+}
+
+// Display metadata must not make otherwise valid authorization rules fail.
+// Empty/null values stay empty; unexpected non-text labels are ignored.
+type resourceLabel string
+
+func (label *resourceLabel) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		value = ""
+	}
+	*label = resourceLabel(value)
+	return nil
 }
 
 func resourceAddrPretend(value any) bool {
@@ -107,12 +124,14 @@ func (c *Client) parseResource(resource []byte) error {
 	c.dnsResource = make(map[string][]net.IP)
 	resourceCount := 0
 
-	for _, app := range clientResource.Data.AppList.Data.AppInfo {
-		for _, appItem := range app.Apps {
+	for _, group := range clientResource.Data.AppList.Data.AppInfo {
+		groupName, groupDescription := string(group.Name), string(group.Description)
+		for _, appItem := range group.Apps {
 			if appItem.AccessModel != "L3VPN" {
 				log.DebugPrintf("Ignore unsupported aTrust access model %q for app %s", appItem.AccessModel, appItem.ID)
 				continue
 			}
+			name, description := string(appItem.Name), string(appItem.Description)
 			for _, address := range appItem.AddressList {
 				resourceCount++
 				if resourceCount > 16384 || len(address.IP) > 1024 {
@@ -169,6 +188,7 @@ func (c *Client) parseResource(resource []byte) error {
 								ipSetBuilder.AddPrefix(netaddr.MustParseIPPrefix(hostStr))
 
 								c.ipResources = append(c.ipResources, client.IPResource{
+									Name: name, Description: description, GroupName: groupName, GroupDescription: groupDescription,
 									IPMin:           ip4.To16(),
 									IPMax:           ipMax4.To16(),
 									PortMin:         portMin,
@@ -192,6 +212,7 @@ func (c *Client) parseResource(resource []byte) error {
 									ipSetBuilder.AddRange(netaddr.IPRangeFrom(netaddr.MustParseIP(ipMin.String()), netaddr.MustParseIP(ipMax.String())))
 
 									c.ipResources = append(c.ipResources, client.IPResource{
+										Name: name, Description: description, GroupName: groupName, GroupDescription: groupDescription,
 										IPMin:           ipMin,
 										IPMax:           ipMax,
 										PortMin:         portMin,
@@ -218,6 +239,7 @@ func (c *Client) parseResource(resource []byte) error {
 							ipSetBuilder.Add(netaddr.MustParseIP(ip.String()))
 
 							c.ipResources = append(c.ipResources, client.IPResource{
+								Name: name, Description: description, GroupName: groupName, GroupDescription: groupDescription,
 								IPMin:           ip,
 								IPMax:           ip,
 								PortMin:         portMin,
@@ -241,6 +263,7 @@ func (c *Client) parseResource(resource []byte) error {
 							continue
 						}
 						c.domainResources[domain] = append(c.domainResources[domain], client.DomainResource{
+							Name: name, Description: description, GroupName: groupName, GroupDescription: groupDescription,
 							PortMin:         portMin,
 							PortMax:         portMax,
 							Protocol:        address.Protocol,
@@ -267,6 +290,7 @@ func (c *Client) parseResource(resource []byte) error {
 									ipSetBuilder.Add(netaddr.MustParseIP(ip.String()))
 									c.dnsResource[hostStr] = append(c.dnsResource[hostStr], ip)
 									c.ipResources = append(c.ipResources, client.IPResource{
+										Name: name, Description: description, GroupName: groupName, GroupDescription: groupDescription,
 										IPMin: ip, IPMax: ip, PortMin: portMin, PortMax: portMax,
 										Protocol: address.Protocol, AppID: appItem.ID, NodeGroupID: appItem.NodeGroupID,
 										EnableTCPPrefL3: appItem.EnableTCPPrefL3,

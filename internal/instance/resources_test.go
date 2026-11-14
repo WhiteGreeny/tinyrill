@@ -66,7 +66,7 @@ func TestResourceNamesPreserveDistinctLabelsAndUnnamedTargets(t *testing.T) {
 	ips := []client.IPResource{{Name: "内部服务", IPMin: net.ParseIP("10.0.0.1"), IPMax: net.ParseIP("10.0.0.9"), Protocol: "tcp", PortMin: 1, PortMax: 65535}}
 	f.Resources(1, ips, domains)
 	display := diagnostic.String()
-	if !strings.Contains(display, "NAME") || !strings.Contains(display, "5 entries; 5 permit TCP") ||
+	if !strings.Contains(display, "RESOURCE") || !strings.Contains(display, "5 entries; 5 permit TCP") ||
 		strings.Count(display, "shared.example") != 2 || strings.Count(display, "财务系统") != 2 ||
 		!strings.Contains(display, "OA 系统") || !strings.Contains(display, "内部服务") {
 		t.Fatalf("names or distinct targets lost: %s", display)
@@ -86,11 +86,58 @@ func TestResourceNamesPreserveDistinctLabelsAndUnnamedTargets(t *testing.T) {
 	}
 }
 
+func TestResourceDetailsKeepDescriptionsGroupsAndNotes(t *testing.T) {
+	var out, diagnostic bytes.Buffer
+	f := &CLIFrontend{Profile: testProfile(t), Output: &out, Diagnostic: &diagnostic, ResourceMode: "full"}
+	base := client.DomainResource{Name: "应用名称", Description: "应用描述", GroupName: "分组名称", GroupDescription: "分组描述", Protocol: "tcp", PortMin: 443, PortMax: 443}
+	rules := []client.DomainResource{base, base}
+	for _, change := range []func(*client.DomainResource){
+		func(r *client.DomainResource) { r.Description = "另一应用描述" },
+		func(r *client.DomainResource) { r.GroupName = "另一分组名称" },
+		func(r *client.DomainResource) { r.GroupDescription = "另一分组描述" },
+		func(r *client.DomainResource) { r.Note = "另一备注" },
+	} {
+		rule := base
+		change(&rule)
+		rules = append(rules, rule)
+	}
+	domains := client.DomainResources{
+		"shared.example":           rules,
+		"description-only.example": {{Name: " ", Description: "只有应用描述", GroupName: "", GroupDescription: "只有分组描述", Protocol: "tcp", PortMin: 80, PortMax: 80}},
+		"same-label.example":       {{Name: "相同文字", Description: "相同文字", Protocol: "tcp", PortMin: 443, PortMax: 443}},
+	}
+	ips := []client.IPResource{
+		{Name: "EC 资源", Note: "EC 备注", IPMin: net.ParseIP("10.0.0.1"), IPMax: net.ParseIP("10.0.0.1"), Protocol: "tcp", PortMin: 22, PortMax: 22},
+		{Description: "IP 应用描述", GroupName: "IP 分组", GroupDescription: "IP 分组说明", IPMin: net.ParseIP("10.0.1.1"), IPMax: net.ParseIP("10.0.1.9"), Protocol: "tcp", PortMin: 80, PortMax: 81},
+	}
+	f.Resources(1, ips, domains)
+	display := diagnostic.String()
+	for _, want := range []string{"9 entries; 9 permit TCP", "Name: 应用名称", "Description: 应用描述", "Group name: 分组名称", "Group description: 分组描述", "Description: 另一应用描述", "Group name: 另一分组名称", "Group description: 另一分组描述", "Note: 另一备注", "Description: 只有应用描述", "Group description: 只有分组描述", "Name: 相同文字", "Description: 相同文字", "Name: EC 资源", "Note: EC 备注", "Description: IP 应用描述", "Group name: IP 分组", "Group description: IP 分组说明"} {
+		if !strings.Contains(display, want) {
+			t.Errorf("missing %q in %s", want, display)
+		}
+	}
+	if strings.Count(display, "shared.example") != 5 || len(domains["shared.example"]) != 6 || out.Len() != 0 {
+		t.Fatal("metadata-aware display deduplication changed rules or lost distinct labels")
+	}
+	for _, line := range strings.Split(display, "\n") {
+		if strings.Contains(line, "description-only.example") && !strings.Contains(line, "Description: 只有应用描述") {
+			t.Fatal("empty name did not leave the description visible on the resource row")
+		}
+	}
+	diagnostic.Reset()
+	f.Resources(1, ips, domains)
+	if display != diagnostic.String() {
+		t.Fatal("metadata ordering is not stable")
+	}
+	t.Log(display)
+}
+
 func TestResourceNamesCannotInjectTerminalRowsOrUnboundedText(t *testing.T) {
 	var diagnostic bytes.Buffer
 	f := &CLIFrontend{Profile: testProfile(t), Diagnostic: &diagnostic}
 	f.Resources(1, nil, client.DomainResources{
-		"safe.example": {{Name: "财务\nFAKE_ROW\t\x1b[2J\u202e", Protocol: "tcp", PortMin: 443, PortMax: 443}},
+		"safe.example": {{Name: "财务\nFAKE_ROW\t\x1b[2J\u202e", Description: "说明\nFAKE_ROW\t\x1b[2J\u202e", GroupName: "分组\nFAKE_ROW\t\x1b[2J\u202e", GroupDescription: "分组说明\nFAKE_ROW\t\x1b[2J\u202e", Note: "备注\nFAKE_ROW\t\x1b[2J\u202e", Protocol: "tcp", PortMin: 443, PortMax: 443}},
 		"long.example": {{Name: strings.Repeat("名", 1000), Protocol: "tcp", PortMin: 80, PortMax: 80}},
 	})
 	display := diagnostic.String()

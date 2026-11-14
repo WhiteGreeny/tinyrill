@@ -107,9 +107,10 @@ func (c *Client) parseResources(resources string) error {
 	count := 0
 	for _, rc := range element.SelectElements("Rc") {
 		if rc.SelectAttrValue("type", "") == "1" || rc.SelectAttrValue("type", "") == "2" {
-			// etree decodes XML entities. Keep the gateway's label as display
+			// etree decodes XML entities. Keep the gateway's labels as display
 			// metadata; it must not affect target, port or protocol matching.
 			name := rc.SelectAttrValue("name", "")
+			note := rc.SelectAttrValue("note", "")
 			var protocol string
 			protoStr := rc.SelectAttrValue("proto", "")
 			if protoStr == "-1" {
@@ -230,6 +231,7 @@ func (c *Client) parseResources(resources string) error {
 				if isDomain {
 					c.domainResources[host] = append(c.domainResources[host], client.DomainResource{
 						Name:     name,
+						Note:     note,
 						PortMin:  portMin,
 						PortMax:  portMax,
 						Protocol: protocol,
@@ -237,6 +239,7 @@ func (c *Client) parseResources(resources string) error {
 				} else {
 					c.ipResources = append(c.ipResources, client.IPResource{
 						Name:     name,
+						Note:     note,
 						IPMin:    ipMin,
 						IPMax:    ipMax,
 						PortMin:  portMin,

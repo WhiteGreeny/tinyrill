@@ -17,7 +17,7 @@
 ./tinyrill run --config examples/customer-a-ec.yaml
 ```
 
-3. 按提示隐藏输入密码、完成验证码。连接就绪后显示客户、代理端口与最多 20 条授权资源；添加 `--resources full` 显示全部，`--resources none` 关闭展示。`NAME` 列展示 EC 网关的资源名称；未取得名称时显示 `-`，aTrust 名称暂未接入。资源列表未探测可达性，代理只支持 TCP。SOCKS 客户端使用 `socks5h` 将域名交给 VPN 解析。Ctrl+C 退出。
+3. 按提示隐藏输入密码、完成验证码。连接就绪后显示客户、代理端口与最多 20 条授权资源；添加 `--resources full` 显示全部，`--resources none` 关闭展示。`RESOURCE` 列逐项展示 aTrust 的应用名称/描述、分组名称/描述，或 EC 的名称/备注。名称为空时仍显示非空描述或备注；各字段分别保留，正常展示无需开启 debug。资源列表未探测可达性，代理只支持 TCP。SOCKS 客户端使用 `socks5h` 将域名交给 VPN 解析。Ctrl+C 退出。
 
 需要记住密码时显式设置 `auth.remember_password: true`；默认原生凭据库为 Windows Credential Manager、macOS Keychain 或 Linux 已解锁的 Secret Service。不要在 YAML 写明文密码。EC 的旧 TLS 数据通道需按客户实际情况明确启用 `easyconnect.allow_legacy_tls`；私有证书使用 `tls.ca_file` 或完整配置指南中的 pin 设置。
 
