@@ -33,7 +33,9 @@
 
 stdout 输出 JSON 状态事件，stderr 为诊断和前台交互。状态包含客户、代次、状态、PID 和时间，保存在独立 status.json；认证链接/图像仅供交互，不应把交互流当作可公开日志。恢复会重建解析缓存和网络栈，旧 TCP 连接关闭，由应用自行重连。
 
-连接就绪和每次恢复成功后，stderr 默认显示客户、代理监听地址与授权资源摘要（最多 20 条去重规则）。`tinyrill run --config customer.yaml --resources full` 显示完整列表，`--resources none` 关闭展示；该选项仅作用于本次运行，不改变 YAML 或路由规则。列表包含已解析的域名、IPv4 地址/范围、协议和端口；`permitted` 表示规则允许 TCP，UDP/ICMP 标为 `unsupported`。这是网关授权信息，没有主动探测可达性，也不包含业务系统名称。资源信息属于客户网络信息，保存 stderr 日志时按内部资料管理。
+连接就绪和每次恢复成功后，stderr 默认显示客户、代理监听地址与授权资源摘要（最多 20 条去重条目）。`tinyrill run --config customer.yaml --resources full` 显示完整列表，`--resources none` 关闭展示；该选项仅作用于本次运行，不改变 YAML 或路由规则。列表包含已解析的域名、IPv4 地址/范围、协议、端口和 `NAME` 名称列；`permitted` 表示规则允许 TCP，UDP/ICMP 标为 `unsupported`。这是网关授权信息，没有主动探测可达性。资源信息属于客户网络信息，保存 stderr 日志时按内部资料管理。
+
+从 RC3 起，EC 名称来自用户诊断样本已确认的 `Resource/Rcs/Rc/@name`；同一资源展开出的域名、单个 IP 和 IP 范围保留同一名称。XML 实体正常解码，不额外猜测 URL 编码。相同地址/端口但名称不同的条目分别展示，名称只作说明，不参与授权匹配。未取得或为空的名称显示 `-`，地址照常保留；aTrust 名称字段尚待实际样本确认，目前仍显示 `-`。名称显示过滤终端控制字符，最多显示前 256 个字符，超长时追加 `...`。
 
 排查资源名称字段时，使用 `tinyrill run --config customer.yaml --resource-debug`。这与 YAML 的 `debug` 独立，不需要开启普通 debug。取得资源后将字段结构写入该客户 `session.state_dir` 下的 `resource-fields.json`，终端提示实际路径。文件只含采集时间、协议、字段名/层级和类型，不保存字段原值，因此没有资源名称、域名/IP、资源 ID、密码或令牌的原值。EC 仅检查 `Resource/Rcs`，aTrust 仅检查 `data.appList.data.appInfo`；不是认证响应或完整资源响应转储。
 

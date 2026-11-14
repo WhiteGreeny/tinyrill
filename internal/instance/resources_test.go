@@ -29,7 +29,7 @@ func TestResourceDisplaySeparatesAuthorizationFromReachability(t *testing.T) {
 		t.Fatalf("resource display polluted JSON status: %q", out.String())
 	}
 	display := diagnostic.String()
-	for _, want := range []string{"Customer a connected (generation 2)", "SOCKS5 listen:", "HTTP listen:", "4 distinct rules; 2 permit TCP", "reachability is not tested", "10.0.0.1 - 10.0.0.9", "1-65535"} {
+	for _, want := range []string{"Customer a connected (generation 2)", "SOCKS5 listen:", "HTTP listen:", "4 entries; 2 permit TCP", "reachability is not tested", "10.0.0.1 - 10.0.0.9", "1-65535"} {
 		if !strings.Contains(display, want) {
 			t.Errorf("missing %q in %s", want, display)
 		}
@@ -48,6 +48,54 @@ func TestResourceDisplaySeparatesAuthorizationFromReachability(t *testing.T) {
 	f.Resources(2, ips, domains)
 	if display != diagnostic.String() {
 		t.Fatal("resource ordering is not stable")
+	}
+}
+
+func TestResourceNamesPreserveDistinctLabelsAndUnnamedTargets(t *testing.T) {
+	var out, diagnostic bytes.Buffer
+	f := &CLIFrontend{Profile: testProfile(t), Output: &out, Diagnostic: &diagnostic}
+	domains := client.DomainResources{
+		"shared.example": {
+			{Name: "财务系统", Protocol: "tcp", PortMin: 443, PortMax: 443},
+			{Name: "OA 系统", Protocol: "tcp", PortMin: 443, PortMax: 443},
+			{Name: "财务系统", Protocol: "tcp", PortMin: 443, PortMax: 443},
+		},
+		"other.example":   {{Name: "财务系统", Protocol: "tcp", PortMin: 80, PortMax: 80}},
+		"unnamed.example": {{Name: " \n ", Protocol: "tcp", PortMin: 22, PortMax: 22}},
+	}
+	ips := []client.IPResource{{Name: "内部服务", IPMin: net.ParseIP("10.0.0.1"), IPMax: net.ParseIP("10.0.0.9"), Protocol: "tcp", PortMin: 1, PortMax: 65535}}
+	f.Resources(1, ips, domains)
+	display := diagnostic.String()
+	if !strings.Contains(display, "NAME") || !strings.Contains(display, "5 entries; 5 permit TCP") ||
+		strings.Count(display, "shared.example") != 2 || strings.Count(display, "财务系统") != 2 ||
+		!strings.Contains(display, "OA 系统") || !strings.Contains(display, "内部服务") {
+		t.Fatalf("names or distinct targets lost: %s", display)
+	}
+	for _, line := range strings.Split(display, "\n") {
+		if strings.Contains(line, "unnamed.example") && !strings.HasSuffix(line, "-") {
+			t.Fatalf("missing-name fallback: %s", line)
+		}
+	}
+	if len(domains["shared.example"]) != 3 || out.Len() != 0 {
+		t.Fatal("name display modified routing data or stdout")
+	}
+	diagnostic.Reset()
+	f.Resources(1, ips, domains)
+	if display != diagnostic.String() {
+		t.Fatal("named rows are not stably sorted")
+	}
+}
+
+func TestResourceNamesCannotInjectTerminalRowsOrUnboundedText(t *testing.T) {
+	var diagnostic bytes.Buffer
+	f := &CLIFrontend{Profile: testProfile(t), Diagnostic: &diagnostic}
+	f.Resources(1, nil, client.DomainResources{
+		"safe.example": {{Name: "财务\nFAKE_ROW\t\x1b[2J\u202e", Protocol: "tcp", PortMin: 443, PortMax: 443}},
+		"long.example": {{Name: strings.Repeat("名", 1000), Protocol: "tcp", PortMin: 80, PortMax: 80}},
+	})
+	display := diagnostic.String()
+	if strings.ContainsAny(display, "\x1b\u202e\t") || strings.Contains(display, "\nFAKE_ROW") || strings.Count(display, "名") != 256 {
+		t.Fatalf("unsafe resource name display: %s", display)
 	}
 }
 

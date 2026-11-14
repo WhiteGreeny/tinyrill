@@ -15,8 +15,8 @@ import (
 const resourceSummaryLimit = 20
 
 type resourceRow struct {
-	target, protocol string
-	portMin, portMax int
+	name, target, protocol string
+	portMin, portMax       int
 }
 
 // Resources describes the parsed authorization rules without probing targets or
@@ -31,15 +31,15 @@ func (f *CLIFrontend) Resources(generation uint64, ips []client.IPResource, doma
 		if !ip.IPMin.Equal(ip.IPMax) {
 			target += " - " + ip.IPMax.String()
 		}
-		rows = append(rows, resourceRow{target, ip.Protocol, ip.PortMin, ip.PortMax})
+		rows = append(rows, resourceRow{name: strings.TrimSpace(ip.Name), target: target, protocol: ip.Protocol, portMin: ip.PortMin, portMax: ip.PortMax})
 	}
 	for domain, resources := range domains {
 		for _, r := range resources {
-			rows = append(rows, resourceRow{domain, r.Protocol, r.PortMin, r.PortMax})
+			rows = append(rows, resourceRow{name: strings.TrimSpace(r.Name), target: domain, protocol: r.Protocol, portMin: r.PortMin, portMax: r.PortMax})
 		}
 	}
 	slices.SortFunc(rows, func(a, b resourceRow) int {
-		return cmp.Or(cmp.Compare(a.target, b.target), cmp.Compare(a.protocol, b.protocol), cmp.Compare(a.portMin, b.portMin), cmp.Compare(a.portMax, b.portMax))
+		return cmp.Or(cmp.Compare(a.target, b.target), cmp.Compare(a.protocol, b.protocol), cmp.Compare(a.portMin, b.portMin), cmp.Compare(a.portMax, b.portMax), cmp.Compare(a.name, b.name))
 	})
 	rows = slices.Compact(rows) // Presentation only: distinct routing metadata is retained by the client.
 	tcp := 0
@@ -60,14 +60,15 @@ func (f *CLIFrontend) Resources(generation uint64, ips []client.IPResource, doma
 		fmt.Fprintln(out, "No displayable authorization rules were returned. This does not confirm resource reachability.")
 		return
 	}
-	fmt.Fprintf(out, "Authorized resources: %d distinct rules; %d permit TCP.\n", len(rows), tcp)
+	fmt.Fprintf(out, "Authorized resources: %d entries; %d permit TCP.\n", len(rows), tcp)
 	fmt.Fprintln(out, "Gateway authorization only; reachability is not tested. HTTP/SOCKS5 support TCP only.")
 	shown := len(rows)
 	if f.ResourceMode != "full" {
 		shown = min(shown, resourceSummaryLimit)
 	}
 	table := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(table, "TARGET\tPROTOCOL\tPORTS\tTCP PROXY")
+	// Names are last so wide Unicode labels do not shift the port/protocol columns.
+	fmt.Fprintln(table, "TARGET\tPROTOCOL\tPORTS\tTCP PROXY\tNAME")
 	for _, row := range rows[:shown] {
 		ports := strconv.Itoa(row.portMin)
 		if row.portMin != row.portMax {
@@ -79,11 +80,15 @@ func (f *CLIFrontend) Resources(generation uint64, ips []client.IPResource, doma
 		} else if row.protocol == "icmp" {
 			ports = "-"
 		}
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", resourceText(row.target), resourceText(row.protocol), ports, access)
+		name := row.name
+		if name == "" {
+			name = "-"
+		}
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", resourceText(row.target), resourceText(row.protocol), ports, access, resourceText(name))
 	}
 	_ = table.Flush()
 	if shown < len(rows) {
-		fmt.Fprintf(out, "Showing %d of %d rules. Start with --resources full to show all, or --resources none to hide.\n", shown, len(rows))
+		fmt.Fprintf(out, "Showing %d of %d entries. Start with --resources full to show all, or --resources none to hide.\n", shown, len(rows))
 	}
 }
 

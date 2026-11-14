@@ -23,6 +23,7 @@ type UnderlayDialer interface {
 }
 
 type IPResource struct {
+	Name            string // Optional display metadata; not used for authorization.
 	IPMin           net.IP
 	IPMax           net.IP
 	PortMin         int
@@ -34,6 +35,7 @@ type IPResource struct {
 }
 
 type DomainResource struct {
+	Name            string // Optional display metadata; not used for authorization.
 	PortMin         int
 	PortMax         int
 	Protocol        string

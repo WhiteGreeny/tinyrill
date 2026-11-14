@@ -1,6 +1,8 @@
 # 资源名称字段诊断
 
-诊断构建 `0.1.0-rc.2-diagnostic.1` 增加 `--resource-debug`。原 RC2 运行包没有这个开关。本轮先确认真实网关返回的名称字段，再据此实现名称展示；普通 `debug: true` 只打印已解析的资源，无法查看被忽略的字段。
+诊断构建 `0.1.0-rc.2-diagnostic.1` 增加 `--resource-debug`。原 RC2 运行包没有这个开关。普通 `debug: true` 只打印已解析的资源，无法查看被忽略的字段。
+
+2026-11-14，用户提供的真实 EC 字段样本（采集时间 `2026-11-14T04:20:24Z`）确认存在 `Resource/Rcs/Rc/@name` 属性，RC3 据此接入名称展示。样本的 `truncated: true` 只表明诊断采样被截断，已出现的 `@name` 足以确认字段位置；字段值被省略，因此不据此保证所有条目都有非空名称，也不推断编码格式或网关版本。aTrust 名称字段仍待实际样本确认。
 
 使用诊断构建、继续引用自己的客户 YAML，无需修改密码或开启普通 debug：
 
@@ -14,7 +16,7 @@
 
 取得资源后，终端会输出 `Resource field diagnostic saved (values omitted): ...` 和实际文件路径。文件名为 `resource-fields.json`，位于配置中的 `session.state_dir`；默认是配置目录下的 `state/<客户ID>/`。看到本次保存提示后，再检查该文件的 `captured_at`，确认不是此前留下的报告。
 
-文件只保存资源字段路径、类型、采集时间和采样状态，不保存字段的原值。示意字段可能是 XML 的 `Resource/Rcs/Rc/@name` 或 JSON 的 `data.appList.data.appInfo[].apps[].name`；这些只是示例，不代表已确认实际网关使用这些名称。
+文件只保存资源字段路径、类型、采集时间和采样状态，不保存字段的原值。EC 的 XML 路径 `Resource/Rcs/Rc/@name` 已由样本确认；aTrust 的 `data.appList.data.appInfo[].apps[].name` 仍只是路径示例，不代表已确认真实字段。
 
 EC 采集范围是 `Resource/Rcs`；aTrust 是 `data.appList.data.appInfo`。诊断受节点数、深度、字段数和采样数量限制；`truncated: true` 表示样本不完整，`filtered_names: true` 表示某些字段名未导出，`scope_found: false` 表示没有取得预期资源分支。不能凭一个不完整样本断言整个网关不提供资源名称。
 
@@ -26,7 +28,7 @@ EC 采集范围是 `Resource/Rcs`；aTrust 是 `data.appList.data.appInfo`。诊
 
 2026-11-14 已生成 Windows/Linux amd64 诊断包，位于 `dist/0.1.0-rc.2-diagnostic.1/`。程序与对应源码固定于 `aaf9f075633d21bf8d5c950480f3abff69d61e39`；目录中的 `DELIVERY.md` 提供运行包、源码、验证附件和校验入口。原 RC2 产物保留。
 
-Windows 实际执行的相关回归、Linux 相关 race 测试、全库 vet 通过，覆盖两个协议的字段采集、原值遗漏、采样边界、路由规则不变、默认关闭和报告原子替换。两平台归档校验、版本/帮助/示例配置及源码对应关系通过，源码与实际二进制 govulncheck 均为 0 条发现。本次仅交付原生诊断包，没有重新构建容器镜像，也尚未取得真实客户的字段样本。
+Windows 实际执行的相关回归、Linux 相关 race 测试、全库 vet 通过，覆盖两个协议的字段采集、原值遗漏、采样边界、路由规则不变、默认关闭和报告原子替换。两平台归档校验、版本/帮助/示例配置及源码对应关系通过，源码与实际二进制 govulncheck 均为 0 条发现。上述诊断包只交付原生构建，没有重新构建容器镜像；交付时尚未取得真实客户的字段样本。
 
 ```text
 d3616d88c190bf18a7808245a90047bfc1ba5a02ec4de0cca2e0b5627e8bd9b2  tinyrill-0.1.0-rc.2-diagnostic.1-windows-amd64.zip
