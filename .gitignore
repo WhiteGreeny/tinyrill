@@ -27,6 +27,7 @@ config.toml
 # Customer state, build outputs and local secrets
 /state/
 /dist/
+/_build/
 /build_assets/
 /local/
 *.age

@@ -18,7 +18,9 @@ podman build --no-cache --build-arg TARGETARCH=amd64 \
   -t localhost/tinyrill:candidate .
 ```
 
-基础镜像已固定 digest；构建上下文只允许发布二进制与许可证。使用 `--no-cache` 避免部分 Podman/Buildah 版本跨构建参数复用旧 LABEL；版本与 revision 必须和二进制的 `version` 输出一致。arm64 使用对应发布目录和 TARGETARCH；本地架构必须匹配，或使用另行配置的模拟环境。源码、SBOM 与报告在发布目录，分发镜像时一起提供对应源码包。
+基础镜像已固定 digest；构建上下文只允许发布二进制与许可证。二进制读取自 `dist/candidate/tinyrill-candidate-linux-amd64/`；VERSION 必须和发布目录一致。使用 `--no-cache` 避免部分 Podman/Buildah 版本跨构建参数复用旧 LABEL；版本与 revision 必须和二进制的 `version` 输出一致。arm64 使用对应发布目录和 TARGETARCH；本地架构必须匹配，或使用另行配置的模拟环境。源码包、平台验证包在 `dist/candidate/`，分发镜像时一起提供。
+
+也可用 `bash scripts/container-smoke.sh candidate` 完成上述构建及受限启动检查，再用 `bash scripts/scan-image.sh candidate` 导出和扫描 `localhost/tinyrill:candidate`。镜像本身只增加根证书等基础运行材料与许可声明，没有额外的认证实现。
 
 ## 前台运行
 

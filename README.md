@@ -62,7 +62,7 @@ Windows 输出文件名使用 `tinyrill.exe`。系统凭据集成测试默认跳
 
 退出码：0 正常停止或成功；2 配置或监听冲突；3 需要人工认证；4 网关拒绝认证；5 连接失败；6 状态或凭据存储失败。进程管理器应对 3/4 停止自动重启，避免造成认证循环。
 
-配置详解见 [YAML 与认证](docs/configuration.md)；容器见 [rootless Podman](docs/docker.md)；多客户分流见 [mihomo 示例](docs/mihomo.md)。[构建与候选发布](docs/releasing.md) 会生成对应源码、SBOM、扫描报告和 SHA256；[验收表](docs/acceptance.md) 用于用户安排的实际客户测试与回退。
+配置详解见 [YAML 与认证](docs/configuration.md)；容器见 [rootless Podman](docs/docker.md)；多客户分流见 [mihomo 示例](docs/mihomo.md)。[构建与候选发布](docs/releasing.md) 将精简运行包、同平台验证附件和对应源码分别归档；SBOM、扫描报告、完整文档与验收脚本在验证附件中，运行时无需加载。[验收表](docs/acceptance.md) 用于用户安排的实际客户测试与回退。
 
 ## 来源与许可证
 

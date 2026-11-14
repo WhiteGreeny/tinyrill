@@ -8,8 +8,9 @@ LABEL org.opencontainers.image.title="tinyrill" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}"
-COPY --chown=65532:65532 --chmod=0555 dist/tinyrill-linux-${TARGETARCH}/tinyrill /usr/local/bin/tinyrill
+COPY --chown=65532:65532 --chmod=0555 dist/${VERSION}/tinyrill-${VERSION}-linux-${TARGETARCH}/tinyrill /usr/local/bin/tinyrill
 COPY LICENSE /usr/share/doc/tinyrill/LICENSE
+COPY dist/${VERSION}/tinyrill-${VERSION}-linux-${TARGETARCH}/THIRD_PARTY_NOTICES.txt /usr/share/doc/tinyrill/THIRD_PARTY_NOTICES.txt
 USER 65532:65532
 WORKDIR /state
 EXPOSE 1080 1081

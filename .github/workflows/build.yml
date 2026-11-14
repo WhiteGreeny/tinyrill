@@ -61,14 +61,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y podman
-          bash scripts/container-smoke.sh
-          bash scripts/scan-image.sh
+          bash scripts/container-smoke.sh "dev-${{ github.sha }}"
+          bash scripts/scan-image.sh "dev-${{ github.sha }}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tinyrill-${{ matrix.id }}-${{ github.sha }}
           path: |
-            dist/tinyrill-*
-            dist/verification/trivy-image.json
+            dist/dev-${{ github.sha }}/*.zip
+            dist/dev-${{ github.sha }}/*.tar.gz
+            dist/dev-${{ github.sha }}/*.tar
+            dist/dev-${{ github.sha }}/*.sha256
+            dist/dev-${{ github.sha }}/*.json
           if-no-files-found: error
           retention-days: 14
   linux-arm64:
@@ -86,6 +89,9 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tinyrill-linux-arm64-${{ github.sha }}
-          path: dist/tinyrill-linux-arm64
+          path: |
+            dist/dev-${{ github.sha }}/*.tar.gz
+            dist/dev-${{ github.sha }}/*.sha256
+            dist/dev-${{ github.sha }}/*.json
           if-no-files-found: error
           retention-days: 14
