@@ -38,7 +38,7 @@ func main() {
 
 const usage = `tinyrill — one customer VPN per process
 
-  tinyrill run --config customer.yaml
+  tinyrill run --config customer.yaml [--resources summary|full|none]
   tinyrill auth-info --config customer.yaml
   tinyrill config-check --config customer.yaml
   tinyrill credentials status|set|delete --config customer.yaml
@@ -87,8 +87,15 @@ func runCLI(ctx context.Context, args []string, out, diagnostic io.Writer) int {
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	path := flags.String("config", "", "YAML configuration")
+	resourceMode := "summary"
+	if command == "run" {
+		flags.StringVar(&resourceMode, "resources", "summary", "authorized resource display: summary, full or none")
+	}
 	if flags.Parse(args) != nil || flags.NArg() != 0 || *path == "" {
 		return cliError(diagnostic, 2, errors.New("expected --config PATH; unknown arguments are not accepted"))
+	}
+	if resourceMode != "summary" && resourceMode != "full" && resourceMode != "none" {
+		return cliError(diagnostic, 2, errors.New("--resources must be summary, full or none"))
 	}
 	p, err := configs.LoadProfile(*path)
 	if err != nil {
@@ -143,7 +150,7 @@ func runCLI(ctx context.Context, args []string, out, diagnostic io.Writer) int {
 		}
 		return cliError(diagnostic, 2, err)
 	}
-	frontend := &instance.CLIFrontend{Profile: p, Output: out, Diagnostic: diagnostic}
+	frontend := &instance.CLIFrontend{Profile: p, Output: out, Diagnostic: diagnostic, ResourceMode: resourceMode}
 	defer frontend.Close()
 	err = instance.Run(ctx, p, material, frontend)
 	if err == nil || ctx.Err() != nil || errors.Is(err, terminal.ErrCanceled) {

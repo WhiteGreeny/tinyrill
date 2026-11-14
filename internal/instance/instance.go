@@ -48,6 +48,7 @@ type Frontend interface {
 	Challenge(context.Context, uint64, func(string), func()) authchallenge.Handler
 	Authenticated(context.Context)
 	Status(Status)
+	Resources(uint64, []client.IPResource, client.DomainResources)
 }
 type Material struct {
 	TOTP        string
@@ -136,6 +137,9 @@ func Run(ctx context.Context, p configs.Profile, material Material, ui Frontend)
 				everReady = true
 				ui.Authenticated(ctx)
 				emit("ready", "")
+				ips, _ := connection.client.IPResources()
+				domains, _ := connection.client.DomainResources()
+				ui.Resources(generation, ips, domains)
 				err = connection.wait(ctx)
 			}
 		}

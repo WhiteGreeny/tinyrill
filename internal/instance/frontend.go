@@ -22,6 +22,7 @@ import (
 type CLIFrontend struct {
 	Profile               configs.Profile
 	Output, Diagnostic    io.Writer
+	ResourceMode          string
 	store                 *credentials.Store
 	password              string
 	loaded, authenticated bool
