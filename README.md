@@ -2,7 +2,7 @@
 
 面向多客户场景的 EC / aTrust 精简客户端，fork 自 [zju-connect](https://github.com/Mythologyli/zju-connect)。每个进程连接一个客户，提供 HTTP 代理和 SOCKS5 TCP CONNECT；应用选择和系统流量接管交给上层代理软件。
 
-当前本地候选为 `0.1.0-rc.2`，补齐授权资源展示，将运行包精简为 7 个文件，并完成无用代码与构建残留清理；包含 Windows/Linux amd64 原生包、独立验证附件、源码与 rootless Podman 镜像，见 [RC2 交付记录](docs/candidate-0.1.0-rc.2.md)。[RC1](docs/candidate-0.1.0-rc.1.md) 归档保留用于回退。2026-11-14，用户已反馈此前 Windows/Linux 实测通过，覆盖密码登录、SOCKS 代理，以及 Windows 凭据保存/记住密码和点选验证码，连接稳定；本轮 RC2 的可控回归与客户实测分开记录。详见 [验收记录](docs/acceptance.md)、[实施记录](docs/implementation-status.md) 和 [完整方案](docs/ec-atrust-fork-plan.md)。
+当前本地候选为 `0.1.0-rc.3`，根据用户提供的真实 EC 字段样本补齐资源名称展示；包含 Windows/Linux amd64 原生包、独立验证附件、源码与 rootless Podman 镜像，见 [RC3 交付记录](docs/candidate-0.1.0-rc.3.md)。运行包仍为 7 个文件，[RC2](docs/candidate-0.1.0-rc.2.md) 等旧归档保留用于回退。2026-11-14，用户已反馈此前 Windows/Linux 实测通过，覆盖密码登录、SOCKS 代理，以及 Windows 凭据保存/记住密码和点选验证码，连接稳定；新增资源名称的本机回归与客户实测分开记录。详见 [验收记录](docs/acceptance.md)、[实施记录](docs/implementation-status.md) 和 [完整方案](docs/ec-atrust-fork-plan.md)。
 
 ## 运行
 
@@ -20,9 +20,9 @@ aTrust 的 `auth-info` 查询网关支持的认证域和方式，不执行登录
 
 默认监听回环地址。每个客户使用独立端口、状态目录和凭据标识；同一状态目录的第二个进程会被拒绝。标准输出为 JSON 状态事件，诊断和交互显示在标准错误。`ready` 表示认证、网络栈和监听器已完成初始化，实际业务权限仍由网关资源决定。
 
-连接就绪后默认展示最多 20 条授权资源及代理监听地址。添加 `--resources full` 查看完整的域名/IP、端口、协议和名称列表，或 `--resources none` 关闭展示。当前代码已接入 EC 的 `Rc/@name` 资源名称；未取得名称时 `NAME` 列显示 `-`，aTrust 名称仍待实际样本确认。列表说明授权范围，未探测业务可达性；UDP/ICMP 条目不能通过当前 TCP 代理访问。
+连接就绪后默认展示最多 20 条授权资源及代理监听地址。添加 `--resources full` 查看完整的域名/IP、端口、协议和名称列表，或 `--resources none` 关闭展示。从 RC3 起接入 EC 的 `Rc/@name` 资源名称；未取得名称时 `NAME` 列显示 `-`，aTrust 名称仍待实际样本确认。列表说明授权范围，未探测业务可达性；UDP/ICMP 条目不能通过当前 TCP 代理访问。
 
-需要协助定位资源名称字段时，可使用后续诊断构建的 `--resource-debug` 导出省略字段值的结构样本，见 [资源名称字段诊断](docs/resource-diagnostics.md)。原 RC2 不包含此开关。
+需要协助定位资源名称字段时，可使用 RC3 的 `--resource-debug` 导出省略字段值的结构样本，见 [资源名称字段诊断](docs/resource-diagnostics.md)。正常展示名称无需开启诊断；原 RC2 不包含此开关。
 
 ## 认证与密码
 

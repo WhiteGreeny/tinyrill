@@ -4,7 +4,7 @@
 
 2026-11-14，用户提供的真实 EC 字段样本（采集时间 `2026-11-14T04:20:24Z`）确认存在 `Resource/Rcs/Rc/@name` 属性，RC3 据此接入名称展示。样本的 `truncated: true` 只表明诊断采样被截断，已出现的 `@name` 足以确认字段位置；字段值被省略，因此不据此保证所有条目都有非空名称，也不推断编码格式或网关版本。aTrust 名称字段仍待实际样本确认。
 
-使用诊断构建、继续引用自己的客户 YAML，无需修改密码或开启普通 debug：
+RC3 已包含此诊断开关，正常展示 EC 名称无需开启。需要继续采集字段时，使用 RC3 或原诊断构建，继续引用自己的客户 YAML：
 
 ```powershell
 ./tinyrill.exe run --config /path/to/customer.yaml --resource-debug
@@ -18,7 +18,7 @@
 
 文件只保存资源字段路径、类型、采集时间和采样状态，不保存字段的原值。EC 的 XML 路径 `Resource/Rcs/Rc/@name` 已由样本确认；aTrust 的 `data.appList.data.appInfo[].apps[].name` 仍只是路径示例，不代表已确认真实字段。
 
-EC 采集范围是 `Resource/Rcs`；aTrust 是 `data.appList.data.appInfo`。诊断受节点数、深度、字段数和采样数量限制；`truncated: true` 表示样本不完整，`filtered_names: true` 表示某些字段名未导出，`scope_found: false` 表示没有取得预期资源分支。不能凭一个不完整样本断言整个网关不提供资源名称。
+EC 采集范围是 `Resource/Rcs`；aTrust 是 `data.appList.data.appInfo`。诊断受节点数、深度、字段数和采样数量限制；`truncated: true` 表示样本不完整，`filtered_names: true` 表示某些字段名未导出，`scope_found: false` 表示没有取得预期资源分支。不能凭一个不完整样本断言整个网关不提供资源名称。诊断采样上限不截断实际资源解析，已用超出采样数量的命名资源测试确认。
 
 确认文件内容后，仅提供这个 JSON 即可；若知道网关版本，可一起注明。不需要提供客户 YAML、完整日志、会话文件、认证响应或真实资源名称。字段名也来自网关，分享前仍应快速检查。
 

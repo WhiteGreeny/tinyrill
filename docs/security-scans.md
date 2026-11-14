@@ -16,4 +16,6 @@ TLS 1.1/RC4 的 EC 数据通道和显式 insecure 配置是单客户兼容例外
 
 2026-11-14，RC2（源码 `bf97632cea06989c8bd307c31907d100e588ff2d`）的 Windows/Linux 源码和实际二进制 govulncheck 均为 0 条发现；最终镜像归档经 Trivy 0.76.2 扫描，系统和 Go 组件均为 0 条。原生报告现位于各平台 `-verification` 附件，镜像报告位于 `dist/0.1.0-rc.2/tinyrill-0.1.0-rc.2-image-scan.json`。JSON 报告通过 `govulncheck -mode=convert` 应用可达漏洞失败门槛，已用合成报告验证退出码 3；不依赖 JSON 输出模式的退出码判断无漏洞。
 
+2026-11-14，RC3（源码 `4b25fe2b6e9c607018c323bac8350e3a41889005`）的 Windows/Linux 源码和实际二进制 govulncheck v1.9.0 均为 0 条发现；最终镜像归档经 Trivy 0.76.2 扫描，全部严重性的系统与 Go 组件发现数为 0。报告位于 `dist/0.1.0-rc.3/` 的平台验证附件及 `tinyrill-0.1.0-rc.3-image-scan.json`，详见 [RC3 交付记录](candidate-0.1.0-rc.3.md)。
+
 数据库与说明：[Go vulnerability management](https://go.dev/doc/security/vuln/)、[Trivy vulnerability scanning](https://trivy.dev/docs/v0.76/guide/scanner/vulnerability/)。
