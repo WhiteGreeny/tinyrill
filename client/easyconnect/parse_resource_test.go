@@ -34,7 +34,11 @@ func TestParseResourcesPreservesMultipleRulesForDomain(t *testing.T) {
 
 func TestResourceDiagnosticStillOmitsPreservedNameValues(t *testing.T) {
 	var report resourcediag.Report
-	c := NewClient(Options{Resources: ResourceOptions{IncludeDomains: true, Diagnostics: func(value resourcediag.Report) { report = value }}})
+	var snapshot resourcediag.ValueSnapshot
+	c := NewClient(Options{Resources: ResourceOptions{IncludeDomains: true, Diagnostics: resourcediag.Observer{
+		Fields: func(value resourcediag.Report) { report = value },
+		Values: func(value resourcediag.ValueSnapshot) { snapshot = value },
+	}}})
 	defer c.Close()
 	if err := c.parseResources(`<Resource><Rcs><Rc name="PRIVATE_NAME" type="1" proto="0" host="app.example" port="443~443"/></Rcs><Dns data=""/></Resource>`); err != nil {
 		t.Fatal(err)
@@ -42,6 +46,9 @@ func TestResourceDiagnosticStillOmitsPreservedNameValues(t *testing.T) {
 	data, _ := json.Marshal(report)
 	if !strings.Contains(string(data), "/@name") || strings.Contains(string(data), "PRIVATE_NAME") || strings.Contains(string(data), "app.example") {
 		t.Fatalf("bad diagnostic: %s", data)
+	}
+	if snapshot.Err != nil || !strings.Contains(string(snapshot.Data), "PRIVATE_NAME") || !strings.Contains(string(snapshot.Data), "app.example") {
+		t.Fatal("value diagnostic did not retain the original resource values")
 	}
 	if rule, ok := client.MatchDomainResource(c.domainResources["app.example"], "tcp", 443); !ok || rule.Name != "PRIVATE_NAME" {
 		t.Fatal("diagnostic changed resource rules")
@@ -83,7 +90,7 @@ func TestECResourceNameFollowsEveryAddressAndKeepsAuthorizationRules(t *testing.
 
 func TestResourceDiagnosticTruncationPreservesAllNamedResources(t *testing.T) {
 	var report resourcediag.Report
-	c := NewClient(Options{Resources: ResourceOptions{IncludeDomains: true, Diagnostics: func(value resourcediag.Report) { report = value }}})
+	c := NewClient(Options{Resources: ResourceOptions{IncludeDomains: true, Diagnostics: resourcediag.Observer{Fields: func(value resourcediag.Report) { report = value }}}})
 	defer c.Close()
 	var xml strings.Builder
 	xml.WriteString(`<Resource><Rcs>`)

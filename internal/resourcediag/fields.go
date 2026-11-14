@@ -1,5 +1,5 @@
-// Package resourcediag describes resource field shapes without retaining values.
-// It is opt-in and never receives authentication requests, headers or cookies.
+// Package resourcediag provides opt-in diagnostics scoped to resource branches.
+// Field reports omit values; a separate opt-in snapshot retains resource values.
 package resourcediag
 
 import (
@@ -38,7 +38,28 @@ type Report struct {
 	Fields        []Field `json:"fields"`
 }
 
-type Observer func(Report)
+type Observer struct {
+	Fields func(Report)
+	Values func(ValueSnapshot)
+}
+
+func (o Observer) EasyConnect(root *etree.Element) {
+	if o.Fields != nil {
+		o.Fields(EasyConnect(root))
+	}
+	if o.Values != nil {
+		o.Values(EasyConnectValues(root))
+	}
+}
+
+func (o Observer) ATrust(resource []byte) {
+	if o.Fields != nil {
+		o.Fields(ATrust(resource))
+	}
+	if o.Values != nil {
+		o.Values(ATrustValues(resource))
+	}
+}
 
 type collector struct {
 	report Report
@@ -153,18 +174,12 @@ func ATrust(resource []byte) Report {
 		c.report.Truncated = true
 		return c.finish()
 	}
-	var envelope struct {
-		Data struct {
-			AppList struct {
-				Data struct{ AppInfo json.RawMessage }
-			}
-		}
-	}
-	if json.Unmarshal(resource, &envelope) != nil || len(envelope.Data.AppList.Data.AppInfo) == 0 {
+	appInfo, err := atrustAppInfo(resource)
+	if err != nil || len(appInfo) == 0 {
 		return c.finish()
 	}
 	var value any
-	decoder := json.NewDecoder(bytes.NewReader(envelope.Data.AppList.Data.AppInfo))
+	decoder := json.NewDecoder(bytes.NewReader(appInfo))
 	decoder.UseNumber()
 	if decoder.Decode(&value) != nil {
 		return c.finish()

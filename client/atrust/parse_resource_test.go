@@ -46,7 +46,11 @@ func TestParseResourcePreservesMultipleRulesForDomain(t *testing.T) {
 
 func TestResourceDiagnosticObservesUnknownNameFieldWithoutChangingRules(t *testing.T) {
 	var report resourcediag.Report
-	c := NewClient(ClientOptions{ResourceDiagnostics: func(value resourcediag.Report) { report = value }})
+	var snapshot resourcediag.ValueSnapshot
+	c := NewClient(ClientOptions{ResourceDiagnostics: resourcediag.Observer{
+		Fields: func(value resourcediag.Report) { report = value },
+		Values: func(value resourcediag.ValueSnapshot) { snapshot = value },
+	}})
 	defer c.Close()
 	if err := c.parseResource([]byte(`{"data":{"appList":{"data":{"appInfo":[{"apps":[{"displayName":"PRIVATE_NAME","id":"app-id","accessModel":"L3VPN","addressList":[{"protocol":"tcp","port":"443","host":"app.example"}]}]}]}}}}`)); err != nil {
 		t.Fatal(err)
@@ -54,6 +58,9 @@ func TestResourceDiagnosticObservesUnknownNameFieldWithoutChangingRules(t *testi
 	data, _ := json.Marshal(report)
 	if !strings.Contains(string(data), ".displayName") || strings.Contains(string(data), "PRIVATE_NAME") || strings.Contains(string(data), "app.example") {
 		t.Fatalf("bad diagnostic: %s", data)
+	}
+	if snapshot.Err != nil || !strings.Contains(string(snapshot.Data), "PRIVATE_NAME") || !strings.Contains(string(snapshot.Data), "app.example") {
+		t.Fatal("value diagnostic did not retain the unparsed resource field")
 	}
 	if _, ok := client.MatchDomainResource(c.domainResources["app.example"], "tcp", 443); !ok {
 		t.Fatal("diagnostic changed resource rules")

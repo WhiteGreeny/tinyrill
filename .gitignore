@@ -36,3 +36,6 @@ config.toml
 *.pcap
 *.keylog
 /tinyrill
+resource-fields.json
+resource-values.json
+resource-values.xml

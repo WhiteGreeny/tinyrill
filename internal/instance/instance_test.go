@@ -30,7 +30,7 @@ func TestResourceDiagnosticsAreOptInAndSeparateFromStatus(t *testing.T) {
 	p := testProfile(t)
 	var out, diagnostic bytes.Buffer
 	f := &CLIFrontend{Profile: p, Output: &out, Diagnostic: &diagnostic}
-	if f.ResourceDiagnostics() != nil {
+	if observer := f.ResourceDiagnostics(); observer.Fields != nil || observer.Values != nil {
 		t.Fatal("diagnostic enabled by default")
 	}
 	directory, err := state.Acquire(p.Session.StateDir)
@@ -39,7 +39,10 @@ func TestResourceDiagnosticsAreOptInAndSeparateFromStatus(t *testing.T) {
 	}
 	defer directory.Close()
 	f.DebugResources = true
-	f.ResourceDiagnostics()(resourcediag.ATrust([]byte(`{"data":{"appList":{"data":{"appInfo":[{"apps":[{"name":"PRIVATE_NAME"}]}]}}}}`)))
+	if f.ResourceDiagnostics().Values != nil {
+		t.Fatal("field-only diagnostic enabled raw values")
+	}
+	f.ResourceDiagnostics().ATrust([]byte(`{"data":{"appList":{"data":{"appInfo":[{"apps":[{"name":"PRIVATE_NAME"}]}]}}}}`))
 	data, err := os.ReadFile(filepath.Join(p.Session.StateDir, "resource-fields.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -52,10 +55,83 @@ func TestResourceDiagnosticsAreOptInAndSeparateFromStatus(t *testing.T) {
 		t.Fatal("diagnostic mixed with stdout or path not reported")
 	}
 	// A second capture replaces the old report instead of accumulating a log.
-	f.ResourceDiagnostics()(resourcediag.ATrust([]byte(`{"data":{}}`)))
+	f.ResourceDiagnostics().ATrust([]byte(`{"data":{}}`))
 	data, _ = os.ReadFile(filepath.Join(p.Session.StateDir, "resource-fields.json"))
 	if bytes.Contains(data, []byte("apps[].name")) {
 		t.Fatal("old diagnostic content retained")
+	}
+}
+
+func TestResourceValueDiagnosticsArePrivateLocalAndExplicit(t *testing.T) {
+	p := testProfile(t)
+	directory, err := state.Acquire(p.Session.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	var out, diagnostic bytes.Buffer
+	f := &CLIFrontend{Profile: p, Output: &out, Diagnostic: &diagnostic, DebugResourceValues: true}
+	observer := f.ResourceDiagnostics()
+	if observer.Fields == nil || observer.Values == nil {
+		t.Fatal("value flag alone should enable both diagnostic files")
+	}
+	observer.ATrust([]byte(`{"session":"OUTSIDE_SESSION","data":{"appList":{"data":{"appInfo":[{"name":"RAW_GROUP","apps":[{"name":"RAW_APP","description":"RAW_DESCRIPTION","addressList":[{"host":"RAW_HOST"}]}]}]}}}}`))
+	path := filepath.Join(p.Session.StateDir, "resource-values.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"RAW_GROUP", "RAW_APP", "RAW_DESCRIPTION", "RAW_HOST"} {
+		if !bytes.Contains(data, []byte(value)) {
+			t.Fatalf("missing value: %s", value)
+		}
+	}
+	if bytes.Contains(data, []byte("OUTSIDE_SESSION")) || out.Len() != 0 || bytes.Contains(diagnostic.Bytes(), []byte("RAW_")) || !bytes.Contains(diagnostic.Bytes(), []byte(path)) {
+		t.Fatal("raw values escaped the local resource file or saved path was not reported")
+	}
+	if err := securefile.Check(path); err != nil {
+		t.Fatalf("diagnostic permissions: %v", err)
+	}
+	fields, err := os.ReadFile(filepath.Join(p.Session.StateDir, "resource-fields.json"))
+	if err != nil || bytes.Contains(fields, []byte("RAW_")) {
+		t.Fatal("field-only file gained resource values")
+	}
+	// Capture failure must leave the previous complete file intact.
+	observer.Values(resourcediag.ValueSnapshot{Format: "json", Err: errors.New("RAW_ERROR")})
+	after, _ := os.ReadFile(path)
+	if !bytes.Equal(data, after) || bytes.Contains(diagnostic.Bytes(), []byte("RAW_ERROR")) {
+		t.Fatal("failed capture changed the file or echoed a raw parser error")
+	}
+	observer.ATrust([]byte(`{"data":{}}`))
+	after, _ = os.ReadFile(path)
+	if bytes.Contains(after, []byte("RAW_")) || !bytes.Contains(after, []byte(`"scope_found": false`)) {
+		t.Fatal("new capture did not replace old values")
+	}
+	if err := securefile.Check(path); err != nil {
+		t.Fatal(err)
+	}
+	f.DebugResourceValues = false
+	if next := f.ResourceDiagnostics(); next.Fields != nil || next.Values != nil {
+		t.Fatal("value capture remained enabled")
+	}
+}
+
+func TestResourceValueWriteFailureDoesNotEchoValues(t *testing.T) {
+	p := testProfile(t)
+	directory, err := state.Acquire(p.Session.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	blocked := filepath.Join(p.Session.StateDir, "resource-values.json")
+	if err := os.Mkdir(blocked, 0700); err != nil {
+		t.Fatal(err)
+	}
+	var out, diagnostic bytes.Buffer
+	f := &CLIFrontend{Profile: p, Output: &out, Diagnostic: &diagnostic, DebugResourceValues: true}
+	f.ResourceDiagnostics().ATrust([]byte(`{"data":{"appList":{"data":{"appInfo":[{"name":"RAW_PRIVATE"}]}}}}`))
+	if out.Len() != 0 || bytes.Contains(diagnostic.Bytes(), []byte("RAW_PRIVATE")) || bytes.Contains(diagnostic.Bytes(), []byte("Resource values saved")) {
+		t.Fatal("write failure echoed values or reported success")
 	}
 }
 
