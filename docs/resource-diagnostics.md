@@ -21,3 +21,14 @@ EC 采集范围是 `Resource/Rcs`；aTrust 是 `data.appList.data.appInfo`。诊
 确认文件内容后，仅提供这个 JSON 即可；若知道网关版本，可一起注明。不需要提供客户 YAML、完整日志、会话文件、认证响应或真实资源名称。字段名也来自网关，分享前仍应快速检查。
 
 该开关默认关闭；不修改资源访问规则，不增加网关请求。报告使用私有文件权限，下次采集会覆盖旧报告；报告写入失败会提示，VPN 初始化继续。停止使用开关后不会生成新报告，已有报告可自行删除。
+
+## 本地诊断包
+
+2026-11-14 已生成 Windows/Linux amd64 诊断包，位于 `dist/0.1.0-rc.2-diagnostic.1/`。程序与对应源码固定于 `aaf9f075633d21bf8d5c950480f3abff69d61e39`；目录中的 `DELIVERY.md` 提供运行包、源码、验证附件和校验入口。原 RC2 产物保留。
+
+Windows 实际执行的相关回归、Linux 相关 race 测试、全库 vet 通过，覆盖两个协议的字段采集、原值遗漏、采样边界、路由规则不变、默认关闭和报告原子替换。两平台归档校验、版本/帮助/示例配置及源码对应关系通过，源码与实际二进制 govulncheck 均为 0 条发现。本次仅交付原生诊断包，没有重新构建容器镜像，也尚未取得真实客户的字段样本。
+
+```text
+d3616d88c190bf18a7808245a90047bfc1ba5a02ec4de0cca2e0b5627e8bd9b2  tinyrill-0.1.0-rc.2-diagnostic.1-windows-amd64.zip
+2edb9e212009af2a7ea95d99b2654ffdf529e20f09d2f26b82bb71ab0cc758ee  tinyrill-0.1.0-rc.2-diagnostic.1-linux-amd64.tar.gz
+```
