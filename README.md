@@ -6,6 +6,8 @@
 
 ## 运行
 
+第一次使用先看 [配置选择指南与全部参数](docs/configuration.md)：示例用中文标记必须修改、按需配置和保持默认的项；运行包自己的 README 也包含日常配置、特殊认证和多客户指引，无需下载验证附件才能完成基本配置。
+
 复制并修改 [客户 A / EC](examples/customer-a-ec.yaml)、[客户 B / EC](examples/customer-b-ec.yaml)、[客户 C / aTrust](examples/customer-c-atrust.yaml)。配置中的服务器和用户名都是占位符。
 
 ```sh
