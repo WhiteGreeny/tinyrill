@@ -2,7 +2,7 @@
 
 面向多客户场景的 EC / aTrust 精简客户端，fork 自 [zju-connect](https://github.com/Mythologyli/zju-connect)。每个进程连接一个客户，提供 HTTP 代理和 SOCKS5 TCP CONNECT；应用选择和系统流量接管交给上层代理软件。
 
-当前本地候选为 `0.1.0-rc.4`，按用户确认接入 aTrust 分组/应用的名称和描述，以及 EC 的备注；包含 Windows/Linux amd64 原生包、独立验证附件、源码与 rootless Podman 镜像，见 [RC4 交付记录](docs/candidate-0.1.0-rc.4.md)。运行包仍为 7 个文件，[RC3](docs/candidate-0.1.0-rc.3.md) 等旧归档保留用于回退。2026-11-14，用户已反馈此前 Windows/Linux 实测通过，覆盖密码登录、SOCKS 代理，以及 Windows 凭据保存/记住密码和点选验证码，连接稳定；新增资源说明的本机回归与客户实测分开记录。详见 [验收记录](docs/acceptance.md)、[实施记录](docs/implementation-status.md) 和 [完整方案](docs/ec-atrust-fork-plan.md)。
+当前本地候选为 `0.1.0-rc.5`，新增每客户静态 DNS 映射与分阶段代理失败日志，保留 aTrust 分组/应用名称和描述、EC 备注；包含 Windows/Linux amd64 原生包、独立验证附件、源码与 rootless Podman 镜像，见 [RC5 交付记录](docs/candidate-0.1.0-rc.5.md)。运行包仍为 7 个文件，[RC4](docs/candidate-0.1.0-rc.4.md) 等旧归档保留用于回退。2026-11-14，用户已反馈此前 Windows/Linux 实测通过，覆盖密码登录、SOCKS 代理，以及 Windows 凭据保存/记住密码和点选验证码，连接稳定；新增功能的本机回归与客户实测分开记录。详见 [验收记录](docs/acceptance.md)、[实施记录](docs/implementation-status.md) 和 [完整方案](docs/ec-atrust-fork-plan.md)。
 
 ## 运行
 
