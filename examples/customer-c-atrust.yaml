@@ -1,22 +1,42 @@
-schema_version: 1
-id: customer-c-atrust
-protocol: atrust
-server: "vpn.customer-c.example:443"
+# aTrust 原生运行示例：修改网关和账户，查询认证方式/域后检查配置并登录。
+# 【必须修改】实际客户信息；【按需配置】有需求才改；【保持默认】通常不改。
+# 路径相对于本 YAML；不要写明文密码，不要复制 easyconnect 专用参数。
+# 完整说明：仓库/验证附件 docs/configuration.md；运行包 README.md 有日常配置指引。
+schema_version: 1 # 【保持默认】配置格式版本，只允许 1。
+id: customer-c-atrust # 【必须确认】每客户独立，使用后保持稳定。
+protocol: atrust # 【保持默认】aTrust 协议。
+server: "vpn.customer-c.example:443" # 【必须修改】主机名/IP:端口，不带 https:// 或路径。
 auth:
-  method: password
-  username: "replace-me"
-  domain: "" # Use auth-info to discover the customer login domain.
-  remember_password: false
+  method: password # 【按认证方式选择】password / sms / cas / oauth2。
+  username: "replace-me" # 【必须修改】password 必填；sms 改用 phone，手机号也要加引号。
+  # 【按网关填写】运行 auth-info --config <本文件>，使用对应认证项的 domain 值。
+  # 空字符串仅在该方式的网关认证域确实为空时适用，不会自动选择其他域。
+  domain: ""
+  remember_password: false # 【按需开启】仅 password 可设 true；其他主认证保持 false。
+  # 【按需配置】后台注入密码文件；不要把密码直接放在配置中。
+  # secret_file: "./secrets/customer-c-password.txt"
+  # 【按需配置】无人值守设 never；人工验证码仍需前台完成。
+  # interactive: never
 listen:
+  # 【多客户时调整】示例使用 41080/41081；不要与其他实例冲突。
+  # 不用的入口可写 ""，至少保留一个；原生通常保持只监听本机。
   socks5: "127.0.0.1:41080"
   http: "127.0.0.1:41081"
 dns:
-  mode: vpn
-  # Optional per-customer mappings; restart this instance after editing.
+  mode: vpn # 【保持默认】只支持 vpn；可省略整个 dns 节。
+  # 【按需配置】指定经当前 VPN 可达的 DNS；省略/[] 使用网关下发的 DNS。
+  # servers: ["10.0.0.53"]
+  # 【按需配置】RC5 起支持静态映射，替换为当前客户资源地址后再取消注释。
+  # 精确名称优先；+. 包含自身和任意层子域名，多个后缀取最长；不新增权限。
   # hosts:
   #   "portal.apps.internal": "10.0.0.20"
   #   "+.apps.internal": "10.0.0.10"
 session:
+  # 【多客户时调整】每客户独立；改 id 时需要同步改显式路径。
+  # 省略则使用 YAML 目录下 state/<id>，与示例的 ../state 不同。
   state_dir: "../state/customer-c-atrust"
 tls:
-  mode: verify
+  mode: verify # 【保持默认】私有 CA 按需填写下项，不直接关闭校验。
+  # ca_file: "./customer-ca.pem"
+# 【排障时开启】普通失败日志和资源列表不需要此开关。
+# debug: true

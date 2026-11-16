@@ -1,28 +1,37 @@
-schema_version: 1
-id: customer-a
-protocol: easyconnect
-server: vpn.customer-a.example:443
+# rootless Podman 前台运行示例，端口和卷需与 docs/docker.md / docker-compose.yml 对应。
+# 【必须修改】网关和用户名；【必须确认】客户 ID、协议；每客户独立配置和状态卷。
+# 容器路径不是主机路径，引用的 CA/secret 文件必须挂载到对应容器位置。
+schema_version: 1 # 【保持默认】只允许 1。
+id: customer-a # 【必须确认】客户独立标识。
+protocol: easyconnect # 【按客户选择】改成 atrust 时删除末尾 easyconnect 节，按需补 auth.domain。
+server: vpn.customer-a.example:443 # 【必须修改】主机名/IP:端口，不带 https://。
 auth:
-  method: password
-  username: replace-me
-  remember_password: false
-  interactive: auto
-  # For externally managed background secrets, also set interactive: never:
+  method: password # 【保持默认】此示例使用密码登录。
+  username: replace-me # 【必须修改】实际账户；纯数字账户加引号。
+  remember_password: false # 【保持默认】容器不连接宿主系统凭据库。
+  interactive: auto # 【按部署方式选择】前台 -it 用 auto；无人值守改为 never。
+  # 【按需配置】后台使用已挂载的只读 secret；同时把上面的 interactive 改为 never。
   # secret_file: /run/secrets/customer-password
-  captcha_file: /state/captcha.png
+  captcha_file: /state/captcha.png # 【保持示例】验证码保存在可写状态卷内。
+  # 【与端口映射配套】点选网页在容器监听 10999，主机仅发布 127.0.0.1:21999。
   callback_listen: 0.0.0.0:10999
-  callback_url: http://127.0.0.1:21999
+  callback_url: http://127.0.0.1:21999 # 主机映射端口变化时同步修改。
 listen:
+  # 【保持容器监听】主机仅发布到回环地址；B/C 可复用容器内端口，但主机端口要不同。
   socks5: 0.0.0.0:1080
   http: 0.0.0.0:1081
 dns:
-  mode: vpn
-  servers: []
+  mode: vpn # 【保持默认】只支持 vpn。
+  servers: [] # 【按需配置】空列表采用网关 DNS；指定时填经 VPN 可达的 IPv4。
+  # 【按需配置】仅固定当前客户的业务域名，修改后重启此容器。
+  # hosts:
+  #   "+.apps.internal": "10.0.0.10"
 session:
+  # 【多客户时调整】独立状态卷和目录；不得让多个实例共享同一可写状态目录。
   state_dir: /state/customer-a
-  reconnect_attempts: 3
+  reconnect_attempts: 3 # 【保持默认】会话恢复预算 0–10，不自动重试首次密码登录。
 tls:
-  mode: verify
+  mode: verify # 【保持默认】私有 CA 需要只读挂载，并配置容器内 ca_file 路径。
 easyconnect:
-  # Enable only for a gateway whose TLS 1.1/RC4 tunnel is accepted explicitly.
+  # 【按客户确认】EC TCPP/L3 需要 TLS 1.1/RC4 时，接受兼容例外后改为 true。
   allow_legacy_tls: false

@@ -1,26 +1,44 @@
-schema_version: 1
-id: customer-a-ec
-protocol: easyconnect
-server: "vpn.customer-a.example:443"
+# EC 原生运行示例：先修改网关和用户名，再确认客户 ID、端口与状态目录。
+# 【必须修改】填写实际客户信息；【按需配置】有对应需求才改；【保持默认】通常不改。
+# 不用的可选字段可以省略。路径相对于本 YAML；不要在 YAML 中填写密码。
+# 完整说明：仓库/验证附件 docs/configuration.md；运行包 README.md 有日常配置指引。
+schema_version: 1 # 【保持默认】配置格式版本，只允许 1。
+id: customer-a-ec # 【必须确认】客户独立标识，使用后保持稳定。
+protocol: easyconnect # 【保持默认】EC 7.6.3/7.6.7 均使用此值。
+server: "vpn.customer-a.example:443" # 【必须修改】主机名/IP:端口，不带 https:// 或路径。
 auth:
-  method: password
-  username: "replace-me"
-  remember_password: false
+  method: password # 【保持默认】用户名密码登录；EC 客户端证书登录另选 certificate。
+  username: "replace-me" # 【必须修改】实际账户；纯数字账户也保留引号。
+  remember_password: false # 【按需开启】改为 true 才自动读取/保存系统凭据库中的密码。
+  # 【按需配置】后台注入密码时填写只读文件路径，文件优先于已保存密码。
+  # secret_file: "./secrets/customer-a-password.txt"
+  # 【按需配置】无人值守时设为 never；遇到人工验证码仍需前台处理。
+  # interactive: never
 listen:
+  # 【多客户时调整】示例使用 21080/21081；程序省略此节时默认 1080/1081。
+  # 仅监听本机。客户端使用 socks5h 传递域名；不用的入口写 ""，至少保留一个。
   socks5: "127.0.0.1:21080"
   http: "127.0.0.1:21081"
 dns:
-  mode: vpn
-  # Optional per-customer mappings; restart this instance after editing.
+  mode: vpn # 【保持默认】只支持 vpn；可省略整个 dns 节。
+  # 【按需配置】只有明确需要指定 VPN 内 DNS 时填写，省略/[] 使用网关下发的 DNS。
+  # servers: ["10.0.0.53"]
+  # 【按需配置】RC5 起支持静态映射；将示例地址换成已授权资源，修改后重启实例。
+  # 精确名称优先；+. 包含自身及任意层子域名，多个后缀取最长；不新增访问权限。
   # hosts:
   #   "portal.apps.internal": "10.0.0.20"
   #   "+.apps.internal": "10.0.0.10"
 session:
+  # 【多客户时调整】每客户独立目录；修改 id 不会自动改写下面的显式路径。
+  # 省略 state_dir 则使用 YAML 所在目录下的 state/<id>，与本示例的 ../state 不同。
   state_dir: "../state/customer-a-ec"
 tls:
-  mode: verify
+  mode: verify # 【保持默认】校验证书；insecure 会跳过身份校验，不是通用修复方式。
+  # 【按需配置】私有 CA 由客户管理员提供；此文件的 CA 集合替代系统根集合。
   # ca_file: "./customer-ca.pem"
 easyconnect:
-  # The inherited EC TCPP/L3 tunnel requires this legacy protocol exception.
-  # Enable only for a customer where its TLS 1.1/RC4 use is acceptable.
+  # 【按客户确认】EC TCPP/L3 旧数据通道需要 TLS 1.1/RC4；接受该兼容例外时改为 true。
+  # 此开关不关闭 tls.mode 的服务器身份校验；不是所有协议通用的设置。
   allow_legacy_tls: false
+# 【排障时开启】普通失败日志和资源列表无需 debug；排障完成后恢复默认。
+# debug: true

@@ -1,17 +1,24 @@
-schema_version: 1
-id: customer-b-ec
-protocol: easyconnect
-server: "vpn.customer-b.example:443"
+# 第二个 EC 客户的原生示例，和客户 A 同时运行时保持 ID、端口、状态目录独立。
+# 【必须修改】网关和用户名；【必须确认】客户 ID；其他设置按需求调整。
+# 路径相对于本 YAML；不要在 YAML 中填写密码。
+# 逐项参考见 docs/configuration.md；更多可选注释见 customer-a-ec.yaml。
+schema_version: 1 # 【保持默认】配置格式版本，只允许 1。
+id: customer-b-ec # 【必须确认】不能沿用另一个客户的 ID。
+protocol: easyconnect # 【保持默认】EC 协议。
+server: "vpn.customer-b.example:443" # 【必须修改】主机名/IP:端口，不带 URL 前缀。
 auth:
-  method: password
-  username: "replace-me"
-  remember_password: false
+  method: password # 【保持默认】密码登录。
+  username: "replace-me" # 【必须修改】客户 B 的账户。
+  remember_password: false # 【按需开启】true 才自动读写系统保存的密码。
 listen:
+  # 【多客户时调整】B 的示例端口为 31080/31081，不能与其他本机实例冲突。
   socks5: "127.0.0.1:31080"
   http: "127.0.0.1:31081"
 session:
+  # 【多客户时调整】此路径是显式值，不会随 id 自动变化。
   state_dir: "../state/customer-b-ec"
 tls:
-  mode: verify
+  mode: verify # 【保持默认】私有 CA 按需另配 ca_file，不直接关闭校验。
 easyconnect:
+  # 【按客户确认】EC TCPP/L3 需要 TLS 1.1/RC4 时，接受该兼容例外后改为 true。
   allow_legacy_tls: false
