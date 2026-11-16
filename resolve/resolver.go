@@ -3,6 +3,7 @@ package resolve
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -25,6 +26,8 @@ type Resolver struct {
 	dnsResource       map[string][]net.IP
 	dnsResourceCursor sync.Map
 	useRemoteDNS      bool
+	primaryServer     string
+	secondaryServer   string
 
 	dnsCache *cache.Cache
 
@@ -45,6 +48,15 @@ type Resolver struct {
 const remoteDNSTCPFallbackDelay = 300 * time.Millisecond
 
 var ErrNoVPNDNS = errors.New("no VPN DNS server or resource mapping is available")
+
+// LookupError identifies resolution failures without losing the underlying cause.
+type LookupError struct {
+	Host string
+	Err  error
+}
+
+func (e *LookupError) Error() string { return fmt.Sprintf("DNS lookup for %s: %v", e.Host, e.Err) }
+func (e *LookupError) Unwrap() error { return e.Err }
 
 type lookupIPFunc func(context.Context, string, string) ([]net.IP, error)
 
@@ -97,6 +109,17 @@ func TCPPrefersL3(ctx context.Context) bool {
 
 // Resolve ip address. If the host could be visited via VPN, this function set a DOMAIN_RESOURCE value in context. If resolve success, this function set a RESOLVE_HOST value in context.
 func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Context, resIP net.IP, resErr error) {
+	host = normalizeHostname(host)
+	source := "unavailable"
+	log.DebugPrintf("DNS lookup requested: host=%q", host)
+	defer func() {
+		if resErr != nil {
+			resErr = &LookupError{Host: host, Err: resErr}
+		} else {
+			resCtx = context.WithValue(resCtx, ContextKeyResolveHost, host)
+			log.DebugPrintf("DNS lookup resolved: host=%q ip=%s source=%s", host, resIP, source)
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return ctx, nil, err
 	}
@@ -106,12 +129,6 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 	if closed {
 		return ctx, nil, net.ErrClosed
 	}
-	host = normalizeHostname(host)
-	defer func() {
-		if resErr == nil {
-			resCtx = context.WithValue(resCtx, ContextKeyResolveHost, host)
-		}
-	}()
 	var domainResourceFound = false
 	var domainResources []client.DomainResource
 	if domain, resources, found := matchDomainResource(r.domainIndex, host); found {
@@ -122,7 +139,7 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 	}
 
 	if cachedIP, found := r.getDNSCache(host); found {
-		log.Printf("%s -> %s", host, cachedIP.String())
+		source = "cache"
 		return ctx, cachedIP, nil
 	}
 
@@ -131,7 +148,7 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 			cursorValue, _ := r.dnsResourceCursor.LoadOrStore(host, &atomic.Uint64{})
 			cursor := cursorValue.(*atomic.Uint64)
 			ip := ips[(cursor.Add(1)-1)%uint64(len(ips))]
-			log.Printf("%s -> %s", host, ip.String())
+			source = "gateway-resource"
 			if domainResourceFound {
 				err := r.IPPool.SetIPDomain(ip, host, domainResources)
 				if err != nil {
@@ -147,13 +164,15 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 				if ip == nil {
 					return ctx, nil, ippool.ErrExhausted
 				}
-				log.Printf("%s -> %s (Fake IP)", host, ip.String())
+				source = "protocol-fake-ip"
 				return ctx, ip, nil
 			}
 		}
 	}
 
 	if r.useRemoteDNS && r.remoteUDPResolver != nil && r.remoteTCPResolver != nil {
+		source = "vpn-primary"
+		log.DebugPrintf("DNS query via VPN: host=%q server=%s", host, r.primaryServer)
 		ip, err := r.resolveCoordinated(ctx, host, func(lookupCtx context.Context) (net.IP, error) {
 			return r.resolveRemote(lookupCtx, host)
 		})
@@ -164,11 +183,12 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 			if r.secondaryResolver == nil {
 				return ctx, nil, err
 			}
+			source = "vpn-secondary"
 			return r.ResolveWithSecondaryDNS(ctx, host)
 		}
-		log.Printf("%s -> %s", host, ip.String())
 		return ctx, ip, nil
 	} else {
+		source = "vpn-secondary"
 		return r.ResolveWithSecondaryDNS(ctx, host)
 	}
 }
@@ -363,6 +383,7 @@ func (r *Resolver) ResolveWithSecondaryDNS(ctx context.Context, host string) (co
 	if r.secondaryResolver == nil {
 		return ctx, nil, ErrNoVPNDNS
 	}
+	log.DebugPrintf("DNS query via VPN: host=%q server=%s", host, r.secondaryServer)
 	ip, err := r.resolveCoordinated(ctx, "secondary:"+host, func(lookupCtx context.Context) (net.IP, error) {
 		ips, err := r.secondaryResolver.LookupIP(lookupCtx, "ip4", host)
 		return r.cacheFirstIP(host, ips, err)
@@ -414,6 +435,8 @@ func NewResolver(vpnStack stack.Stack, remoteDNSServer, secondaryDNSServer strin
 		dnsResource:       dnsResource,
 		dnsCache:          cache.New(time.Duration(ttl)*time.Second, time.Duration(ttl)*2*time.Second),
 		useRemoteDNS:      useRemoteDNS,
+		primaryServer:     remoteDNSServer,
+		secondaryServer:   secondaryDNSServer,
 	}
 	// This constant IPv4 pool is protocol-internal; it does not create a host TUN.
 	resolver.IPPool, _ = ippool.NewIPPool[[]client.DomainResource]("198.18.0.0/16")

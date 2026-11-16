@@ -55,8 +55,13 @@ func TestEveryDNSAttemptUsesVPN(t *testing.T) {
 func TestMissingDNSDoesNotUseSystemResolver(t *testing.T) {
 	r := NewResolver(&failingVPNStack{}, "", "", 60, nil, nil, true)
 	defer r.Close()
-	if _, _, err := r.Resolve(context.Background(), "localhost"); !errors.Is(err, ErrNoVPNDNS) {
+	_, _, err := r.Resolve(context.Background(), "localhost")
+	if !errors.Is(err, ErrNoVPNDNS) {
 		t.Fatalf("missing VPN DNS must fail even for locally resolvable names: %v", err)
+	}
+	var lookup *LookupError
+	if !errors.As(err, &lookup) || lookup.Host != "localhost" {
+		t.Fatalf("missing DNS stage metadata: %v", err)
 	}
 }
 

@@ -280,6 +280,17 @@ func (o *owner) start(ctx context.Context, p configs.Profile) error {
 		}
 	}
 	o.resolver = resolve.NewResolver(o.stack, primary, secondary, uint64(p.DNS.TTL), domainResources, dnsResources, primary != "")
+	resolverCount := 0
+	if primary != "" {
+		resolverCount++
+	}
+	if secondary != "" {
+		resolverCount++
+	}
+	log.Printf("[%s] DNS ready: mode=vpn gateway_mappings=%d vpn_resolvers=%d", p.ID, len(dnsResources), resolverCount)
+	if resolverCount == 0 {
+		log.Println("DNS: no VPN resolver configured; resource mappings and IP destinations remain available")
+	}
 	o.stack.SetupIPPool(o.resolver.IPPool)
 	if starter, ok := o.stack.(interface{ Start(context.Context) error }); ok {
 		startCtx, cancel := context.WithTimeout(ctx, duration(p.Session.DialTimeout))

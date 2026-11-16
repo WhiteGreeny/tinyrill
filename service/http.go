@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -54,6 +55,7 @@ type httpTunnel struct {
 type httpProxy struct {
 	dialContext client.DialContextFunc
 	client      *http.Client
+	diagnostics *failureLog
 	tunnelsMu   sync.Mutex
 	tunnels     map[*httpTunnel]struct{}
 }
@@ -66,6 +68,7 @@ func newHTTPProxyWithDial(dialContext client.DialContextFunc) *httpProxy {
 	proxy := &httpProxy{
 		dialContext: dialContext,
 		tunnels:     make(map[*httpTunnel]struct{}),
+		diagnostics: &failureLog{},
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	// Every request belongs to this VPN, regardless of HTTP_PROXY/HTTPS_PROXY.
@@ -108,6 +111,10 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	resp, err := p.client.Do(req)
 	if err != nil {
+		var reported *reportedFailure
+		if !errors.As(err, &reported) {
+			p.diagnostics.report("http", req.URL.Host, err)
+		}
 		log.DebugPrintf("HTTP proxy upstream request failed: %s %s: %v", req.Method, req.URL.Host, bounded.TransportError(err))
 		w.WriteHeader(500)
 		_, _ = w.Write([]byte("VPN request failed\n"))
@@ -136,6 +143,10 @@ func (p *httpProxy) handleConnect(w http.ResponseWriter, req *http.Request) {
 	log.DebugPrintf("HTTP proxy CONNECT request: %s", req.Host)
 	targetConn, err := p.dialContext(req.Context(), "tcp", req.Host)
 	if err != nil {
+		var reported *reportedFailure
+		if !errors.As(err, &reported) {
+			p.diagnostics.report("dial", req.Host, err)
+		}
 		log.DebugPrintf("HTTP proxy CONNECT dial failed: %s: %v", req.Host, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("VPN request failed\n"))
