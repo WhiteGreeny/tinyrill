@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mythologyli/zju-connect/client"
+	"github.com/mythologyli/zju-connect/internal/dnshosts"
 	"github.com/mythologyli/zju-connect/internal/ippool"
 	"github.com/mythologyli/zju-connect/log"
 	"github.com/mythologyli/zju-connect/stack"
@@ -28,6 +29,7 @@ type Resolver struct {
 	useRemoteDNS      bool
 	primaryServer     string
 	secondaryServer   string
+	staticHosts       *dnshosts.Table
 
 	dnsCache *cache.Cache
 
@@ -136,6 +138,19 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 		domainResources = resources
 		ctx = context.WithValue(ctx, ContextKeyDomainResource, resources)
 		log.DebugPrintf("Domain resource found: %s", domain)
+	}
+	// An explicit per-customer mapping takes precedence over cached or gateway
+	// DNS answers. Domain authorization metadata is retained; the dialer still
+	// checks authorization before creating any VPN connection.
+	if address, ok := r.staticHosts.Lookup(host); ok {
+		source = "static-hosts"
+		ip := net.IP(address.AsSlice())
+		if domainResourceFound {
+			if err := r.IPPool.SetIPDomain(ip, host, domainResources); err != nil {
+				log.DebugPrintf("Set static DNS domain metadata: %v", err)
+			}
+		}
+		return ctx, ip, nil
 	}
 
 	if cachedIP, found := r.getDNSCache(host); found {
@@ -422,7 +437,13 @@ func newVPNResolver(vpnStack stack.Stack, server string, forceTCP bool) *net.Res
 	}}
 }
 
-func NewResolver(vpnStack stack.Stack, remoteDNSServer, secondaryDNSServer string, ttl uint64, domainResources client.DomainResources, dnsResource map[string][]net.IP, useRemoteDNS bool) *Resolver {
+type Option func(*Resolver)
+
+func WithStaticHosts(hosts *dnshosts.Table) Option {
+	return func(r *Resolver) { r.staticHosts = hosts }
+}
+
+func NewResolver(vpnStack stack.Stack, remoteDNSServer, secondaryDNSServer string, ttl uint64, domainResources client.DomainResources, dnsResource map[string][]net.IP, useRemoteDNS bool, options ...Option) *Resolver {
 	if ttl == 0 {
 		ttl = 300
 	}
@@ -440,5 +461,8 @@ func NewResolver(vpnStack stack.Stack, remoteDNSServer, secondaryDNSServer strin
 	}
 	// This constant IPv4 pool is protocol-internal; it does not create a host TUN.
 	resolver.IPPool, _ = ippool.NewIPPool[[]client.DomainResource]("198.18.0.0/16")
+	for _, option := range options {
+		option(resolver)
+	}
 	return resolver
 }

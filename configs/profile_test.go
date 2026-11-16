@@ -62,3 +62,24 @@ func TestAuthInfoDoesNotRequireLoginCredentials(t *testing.T) {
 		t.Fatal("run accepted missing username")
 	}
 }
+
+func TestProfileStaticHostsAreStrictAndOptional(t *testing.T) {
+	p, err := ParseProfile([]byte(validProfile+"dns:\n  hosts:\n    app.internal: 10.0.0.10\n    '+.apps.internal': 10.0.0.11\n"), t.TempDir())
+	if err != nil || p.DNS.Hosts["+.apps.internal"] != "10.0.0.11" || p.DNS.Mode != "vpn" {
+		t.Fatalf("hosts configuration: %#v %v", p.DNS, err)
+	}
+	for _, body := range []string{
+		"hosts: null", "hosts: []", "hosts: PRIVATE_VALUE", "hosts: {app.internal: 123}",
+		"hosts: {app.internal: true}", "hosts: {123: '10.0.0.1'}", "hosts: {app.internal: 10.0.0.1, app.internal: 10.0.0.2}",
+		"hosts: {APP.internal: 10.0.0.1, app.internal.: 10.0.0.2}", "hosts: {'*.internal': 10.0.0.1}",
+		"hosts: {app.internal: PRIVATE_VALUE}", "hosts: {app.internal: &private '10.0.0.1'}",
+		"hosts: {app.internal: !!str 10.0.0.1}", "hosts: {&private app.internal: 10.0.0.1}",
+	} {
+		_, err := ParseProfile([]byte(validProfile+"dns:\n  "+body+"\n"), t.TempDir())
+		if err == nil {
+			t.Errorf("accepted %s", body)
+		} else if strings.Contains(err.Error(), "PRIVATE_VALUE") {
+			t.Fatalf("configuration value leaked: %v", err)
+		}
+	}
+}

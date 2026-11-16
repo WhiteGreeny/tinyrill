@@ -21,6 +21,7 @@ import (
 	"github.com/mythologyli/zju-connect/configs"
 	"github.com/mythologyli/zju-connect/dial"
 	"github.com/mythologyli/zju-connect/internal/credentials"
+	"github.com/mythologyli/zju-connect/internal/dnshosts"
 	"github.com/mythologyli/zju-connect/internal/identity"
 	"github.com/mythologyli/zju-connect/internal/resourcediag"
 	"github.com/mythologyli/zju-connect/internal/state"
@@ -279,7 +280,11 @@ func (o *owner) start(ctx context.Context, p configs.Profile) error {
 			}
 		}
 	}
-	o.resolver = resolve.NewResolver(o.stack, primary, secondary, uint64(p.DNS.TTL), domainResources, dnsResources, primary != "")
+	staticHosts, err := dnshosts.New(p.DNS.Hosts)
+	if err != nil {
+		return err
+	}
+	o.resolver = resolve.NewResolver(o.stack, primary, secondary, uint64(p.DNS.TTL), domainResources, dnsResources, primary != "", resolve.WithStaticHosts(staticHosts))
 	resolverCount := 0
 	if primary != "" {
 		resolverCount++
@@ -287,9 +292,9 @@ func (o *owner) start(ctx context.Context, p configs.Profile) error {
 	if secondary != "" {
 		resolverCount++
 	}
-	log.Printf("[%s] DNS ready: mode=vpn gateway_mappings=%d vpn_resolvers=%d", p.ID, len(dnsResources), resolverCount)
+	log.Printf("[%s] DNS ready: mode=vpn static_hosts=%d gateway_mappings=%d vpn_resolvers=%d", p.ID, len(p.DNS.Hosts), len(dnsResources), resolverCount)
 	if resolverCount == 0 {
-		log.Println("DNS: no VPN resolver configured; resource mappings and IP destinations remain available")
+		log.Println("DNS: no VPN resolver configured; static/resource mappings and IP destinations remain available")
 	}
 	o.stack.SetupIPPool(o.resolver.IPPool)
 	if starter, ok := o.stack.(interface{ Start(context.Context) error }); ok {

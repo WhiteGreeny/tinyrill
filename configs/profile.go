@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mythologyli/zju-connect/internal/dnshosts"
 	"github.com/mythologyli/zju-connect/internal/securefile"
 	"go.yaml.in/yaml/v3"
 )
@@ -65,9 +66,10 @@ type Listen struct {
 	HTTP   string `yaml:"http"`
 }
 type DNS struct {
-	Mode    string   `yaml:"mode"`
-	Servers []string `yaml:"servers"`
-	TTL     int      `yaml:"ttl"`
+	Mode    string            `yaml:"mode"`
+	Servers []string          `yaml:"servers"`
+	TTL     int               `yaml:"ttl"`
+	Hosts   map[string]string `yaml:"hosts"`
 }
 type Session struct {
 	StateDir          string `yaml:"state_dir"`
@@ -206,6 +208,24 @@ func validateNode(node *yaml.Node, schema reflect.Type, depth int, count *int) e
 				return err
 			}
 		}
+	case reflect.Map:
+		if node.Kind != yaml.MappingNode || schema.Key().Kind() != reflect.String {
+			return invalid("expected a mapping with string keys")
+		}
+		seen := map[string]bool{}
+		for i := 0; i < len(node.Content); i += 2 {
+			key, value := node.Content[i], node.Content[i+1]
+			if err := validateNode(key, schema.Key(), depth+1, count); err != nil {
+				return err
+			}
+			if seen[key.Value] {
+				return invalid("duplicate mapping key")
+			}
+			seen[key.Value] = true
+			if err := validateNode(value, schema.Elem(), depth+1, count); err != nil {
+				return err
+			}
+		}
 	case reflect.Slice:
 		if node.Kind != yaml.SequenceNode {
 			return invalid("expected a sequence")
@@ -276,6 +296,9 @@ func (p *Profile) Validate() error {
 	}
 	if p.DNS.TTL < 1 || p.DNS.TTL > 86400 {
 		return errors.New("dns.ttl must be between 1 and 86400 seconds")
+	}
+	if _, err := dnshosts.New(p.DNS.Hosts); err != nil {
+		return fmt.Errorf("dns.hosts: %w", err)
 	}
 	switch p.Auth.Method {
 	case "password", "sms", "cas", "oauth2", "certificate":
