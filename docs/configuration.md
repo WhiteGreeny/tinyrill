@@ -16,6 +16,7 @@
 | `credentials.backend`, `ref`, `vault_file` | auto 或 age-file；非秘密引用默认客户 ID；age-file 必须指定 vault_file |
 | `listen.socks5`, `http` | 127.0.0.1:1080/1081；空字符串禁用对应入口，至少保留一个 |
 | `dns.mode`, `servers`, `ttl` | vpn；最多两个 IPv4 VPN 内解析器；缓存 TTL 默认 300s |
+| `dns.hosts` | 可选，每客户最多 256 条静态域名到 IPv4 映射；精确名称或 `+.` 后缀 |
 | `session.state_dir` | 默认配置目录下 state/id；一实例独占，不能复用 |
 | `session.setup_timeout`, `dial_timeout` | 10m / 15s；认证初始化和业务拨号截止时间 |
 | `session.reconnect_attempts` | 3，允许 0..10；进程生命周期内恢复预算，只有已有会话可自动恢复 |
@@ -24,6 +25,30 @@
 | `atrust.mac_addresses` | 可选 MAC 标识列表，不修改主机网卡 |
 | `atrust.session_refresh`, `nodes_refresh` | 30m / 5m |
 | `debug` | false；开启仍不输出认证正文、秘密或数据包内容 |
+
+## DNS 与连接诊断
+
+`dns.mode` 目前只接受 `vpn`，省略时也使用该值。`dns.servers` 中的查询通过客户 VPN 发送；不启用系统或公共 DNS 回退。
+
+从 RC5 起，可以在客户 YAML 中显式补充静态映射，例如：
+
+```yaml
+dns:
+  mode: vpn
+  hosts:
+    "portal.apps.internal": "10.0.0.20"
+    "+.apps.internal": "10.0.0.10"
+```
+
+精确名称优先于后缀；多个后缀命中时选择最长后缀。上例的 `portal.apps.internal` 使用 `10.0.0.20`，`apps.internal`、`dev.apps.internal`、`a.b.apps.internal` 使用 `10.0.0.10`，`notapps.internal` 不匹配。比较忽略大小写及一个结尾的点；规范化后重复的规则拒绝加载。只接受 ASCII 主机名和 IPv4 值，不接受 `*.`、正则、URL、端口、IPv6 或另一个域名作为值。
+
+显式映射优先于本实例的缓存、网关资源映射和 VPN DNS，不发起 DNS 查询。未命中时继续原有解析流程。配置只影响所属客户，修改后重启该实例生效；不修改主机 hosts、系统 DNS 或其他代理配置。HTTP Host 和 TLS 使用的目标域名仍由应用保留。映射不新增资源权限，目标仍需满足网关下发的域名或 IP/协议/端口授权。
+
+启动时 stderr 显示 `DNS ready`，列出静态映射数、网关映射数和可用 VPN DNS 服务器数；这表示解析能力已配置，不表示已探测业务可达性。普通日志会显示代理失败阶段：`stage=dns` 为解析失败，`stage=authorization` 为资源授权拒绝，`stage=dial` 为建立 VPN 业务连接失败，`stage=session` 为会话不可用，`stage=http` 为 HTTP 转发失败。同一实例、阶段、目标和错误在 30 秒内限频，下一次输出的 `suppressed` 记录期间省略次数；仅静默期间不会补发汇总。
+
+`debug: true` 额外输出代理收到的目标、DNS 命中的来源/地址、VPN DNS 服务器和拨号成功信息，并关闭上述失败限频。正常取消不作为普通错误。日志不包含认证正文或数据包，但目标域名/IP 属于客户网络信息，分享前自行筛选。`stdout` 继续仅输出 JSON 状态事件。与 mihomo 联用的排障步骤见 [多客户与 mihomo](mihomo.md)。
+
+## 认证、状态与资源
 
 原生密码后端：Windows 当前用户 Credential Manager；macOS CGO 原生 Keychain；Linux 已解锁的 Secret Service，且仅连接本地 Unix D-Bus。服务不可用或锁定时无自动明文降级。age-file 使用 age 标准口令加密，需隐藏输入独立解锁口令，每客户单独 vault_file；不支持多个进程共享一个可写 vault。
 

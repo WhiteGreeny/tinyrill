@@ -10,6 +10,12 @@ auth:
 listen:
   socks5: "127.0.0.1:41080"
   http: "127.0.0.1:41081"
+dns:
+  mode: vpn
+  # Optional per-customer mappings; restart this instance after editing.
+  # hosts:
+  #   "portal.apps.internal": "10.0.0.20"
+  #   "+.apps.internal": "10.0.0.10"
 session:
   state_dir: "../state/customer-c-atrust"
 tls:

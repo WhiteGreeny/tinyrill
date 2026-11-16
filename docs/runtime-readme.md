@@ -23,6 +23,10 @@
 
 多个客户各用一份配置、不同客户 ID、代理端口和状态目录。示例内服务器和用户名为占位符。stdout 为 JSON 状态，交互与资源列表在 stderr。`version` 查看版本；`credentials delete --config ...` 删除保存的密码，`session clear --config ...` 单独清除会话。
 
+从 RC5 起，客户 YAML 可用 `dns.hosts` 补充精确域名或 `+.` 后缀到 IPv4 的映射，例如 `dns: {mode: vpn, hosts: {"+.apps.internal": "10.0.0.10"}}`。此后缀包含自身和任意层子域名，精确名称优先，其次最长后缀。映射优先于缓存和 VPN DNS，只作用于该客户，修改后需重启实例，目标仍受资源授权限制。`dns.mode` 仍只支持 `vpn`。
+
+普通 stderr 日志现在区分解析、授权、会话和连接失败，并对相同失败限频；`debug: true` 可查看收到的目标和实际解析来源。启动时 `DNS ready` 显示配置的解析能力。遇到 IP 能访问、域名不能访问时，先用 `socks5h` 分别直接测试 tinyrill 的端口，再检查上层代理的域名传递；详细步骤和匿名案例在验证附件的 `docs/mihomo.md`。
+
 排查资源名称时可添加 `--resource-debug`，无需开启 YAML 的 `debug`。取得资源后，终端会提示该客户状态目录中的 `resource-fields.json` 路径；文件只保留有限的资源字段名、类型和层级，不包含字段原值。看到本次保存提示后，检查文件并提供给维护者即可。每次采集覆盖旧报告，普通运行不生成新报告。
 
 需要自己检查实际名称及其他字段值时，使用 `--resource-debug-values`，单独这个开关即可。状态目录额外生成 aTrust 的 `resource-values.json`（完整分组/应用结构在 `resources` 中）或 EC 的 `resource-values.xml`（完整 `Rcs` 子树），保留资源分支的全部字段原值。文件包含实际客户资源信息，先筛选必要片段再分享；终端只报告路径，普通 debug 不启用此导出。每次成功采集覆盖旧文件，检查本次保存提示和文件中的 `captured_at`。

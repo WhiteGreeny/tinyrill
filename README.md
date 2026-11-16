@@ -45,7 +45,7 @@ tinyrill session clear --config customer.yaml
 
 ## 网络和 TLS
 
-业务连接只经当前客户的 VPN。未授权资源、不支持的 IPv6、DNS 失败或会话断开都会返回错误，无本地直连或公共 DNS 兜底。业务域名使用网关资源及 VPN 内 DNS；可用 `dns.servers` 指定通过该 VPN 访问的解析器。网关控制连接单独使用基础网络。
+业务连接只经当前客户的 VPN。未授权资源、不支持的 IPv6、DNS 失败或会话断开都会返回错误，无本地直连或公共 DNS 兜底。业务域名使用网关资源及 VPN 内 DNS；可用 `dns.servers` 指定通过该 VPN 访问的解析器。`dns.mode` 目前只接受 `vpn`。从 RC5 起可通过每客户的 `dns.hosts` 配置精确域名或 `+.` 后缀到 IPv4 的静态映射，精确优先、最长后缀次之；映射不新增资源权限。网关控制连接单独使用基础网络。配置与日志见 [参考](docs/configuration.md)，IP/域名结果不同的排障见 [mihomo 指引](docs/mihomo.md)。
 
 SOCKS5 客户端应使用 `socks5h` 传递域名。仅支持 TCP CONNECT；没有 SOCKS5 UDP/BIND、系统 TUN、Shadowsocks、主机路由/DNS 修改或通用端口转发。保留 VPN L3 所需的 gVisor 用户态栈和内部 UDP/DNS。
 
