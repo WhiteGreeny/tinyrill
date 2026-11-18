@@ -63,7 +63,7 @@ func (c *collector) add(path, name, kind string, value any, depth int) {
 	} else {
 		// Only shallow, explicitly allowed metadata can retain values. Unknown
 		// fields, user IDs, times, arbitrary numbers and strings remain omitted.
-		if depth <= 2 {
+		if depth <= 2 && metadataPath(path, name) {
 			f.Value = metadata(name, value)
 		}
 		if text, ok := value.(string); ok && messageField(name) {
@@ -71,6 +71,25 @@ func (c *collector) add(path, name, kind string, value any, depth int) {
 		}
 	}
 	c.event.Fields = append(c.event.Fields, f)
+}
+
+func metadataPath(path, name string) bool {
+	// aTrust's result code is at the envelope root, never an arbitrary nested
+	// "code" (which could instead be a verification code). Known data flags and
+	// the next service are the only scalar values read from its data envelope.
+	if path == "$."+name {
+		return true
+	}
+	if path == "$.data."+name {
+		switch strings.ToLower(name) {
+		case "nextservice", "graphcheckcodeenable", "passwordexpired", "pwdexpired", "needchangepassword", "forcechangepassword", "mustchangepassword":
+			return true
+		}
+	}
+	// EC authentication responses use the Auth envelope. Identically named
+	// fields inside another object, application or embedded payload stay opaque.
+	path, name = strings.ToLower(path), strings.ToLower(name)
+	return path == "auth/"+name || path == "auth/@"+name
 }
 
 func sensitive(name string) bool {

@@ -109,13 +109,22 @@ func TestCaptureHandlesLargeAndFailedResponses(t *testing.T) {
 
 func TestMetadataRejectsFreeTextAndNestedSecretValues(t *testing.T) {
 	var e Event
-	inspect(&e, []byte(`{"code":"12345678901234567890","message":"unexpected VERY_PRIVATE","data":{"nextService":"https://VERY_PRIVATE/?token=VERY_PRIVATE","success":false,"unknown":{"code":1234},"ticket":{"nextService":"auth/VERY_PRIVATE","message":"VERY_PRIVATE"}}}`))
+	inspect(&e, []byte(`{"code":"12345678901234567890","success":false,"message":"unexpected VERY_PRIVATE","data":{"code":345678,"nextService":"https://VERY_PRIVATE/?token=VERY_PRIVATE","unknown":{"code":1234},"ticket":{"nextService":"auth/VERY_PRIVATE","message":"VERY_PRIVATE"}},"payload":{"code":234567,"nextService":"auth/VERY_PRIVATE"}}`))
 	data, _ := json.Marshal(e)
 	if bytes.Contains(data, []byte("VERY_PRIVATE")) || bytes.Contains(data, []byte("12345678901234567890")) || bytes.Contains(data, []byte(`"value":1234`)) {
 		t.Fatalf("unsafe values: %s", data)
 	}
 	if !bytes.Contains(data, []byte(`"value":false`)) {
 		t.Fatal("false metadata lost")
+	}
+	if bytes.Contains(data, []byte("234567")) || bytes.Contains(data, []byte("345678")) {
+		t.Fatal("nested code mistaken for gateway result")
+	}
+	var xmlEvent Event
+	inspect(&xmlEvent, []byte(`<Other><code>234567</code><NextService>auth/VERY_PRIVATE</NextService></Other>`))
+	xmlData, _ := json.Marshal(xmlEvent)
+	if bytes.Contains(xmlData, []byte("234567")) || bytes.Contains(xmlData, []byte("VERY_PRIVATE")) {
+		t.Fatal("unknown XML envelope retained values")
 	}
 }
 

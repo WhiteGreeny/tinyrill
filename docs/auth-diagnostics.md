@@ -34,7 +34,7 @@ Linux：
 |---|---|
 | 运行信息 | 协议、程序版本与源码提交、开始/更新时间、最后状态与原因 |
 | 请求信息 | 固定认证接口路径、时间、连接代次、HTTP 状态；不记录网关地址、URL 参数、请求正文或请求/响应头 |
-| 返回码 | 浅层 `code` / `result` / `ErrorCode` / `errcode` / `NextAuth` 等允许字段中的有界整数 |
+| 返回码 | 已知响应位置中 `code` / `result` / `ErrorCode` / `errcode` / `NextAuth` 等允许字段的有界整数；aTrust `data.code` 或未知对象内同名字段省略值 |
 | 后续认证 | 浅层 `nextService` / `NextService` 中符合 `auth/服务标识` 形式的值；URL、查询参数及其他文本省略 |
 | 标志 | 验证码启用标志、`success` 和少数显式密码状态布尔/0/1 字段；只记录原值，不判定过期 |
 | 响应结构 | 有界 JSON / XML 字段名、层级、类型；未知字段默认省略值，已知敏感字段标记 `redacted`，不遍历其子树 |
