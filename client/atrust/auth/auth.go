@@ -16,6 +16,7 @@ import (
 
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/client/authchallenge"
+	"github.com/mythologyli/zju-connect/internal/authdiag"
 	"github.com/mythologyli/zju-connect/internal/bounded"
 	"github.com/mythologyli/zju-connect/log"
 )
@@ -116,6 +117,7 @@ type Session struct {
 
 	response         map[string]json.RawMessage
 	challengeHandler authchallenge.Handler
+	diagnostics      authdiag.Observer
 }
 
 func NewSession(server string, tlsKeyLogWriter io.Writer, dialContext ...client.DialContextFunc) *Session {
@@ -151,11 +153,14 @@ func (s *Session) request(req *http.Request) (*http.Response, error) {
 
 	resp, err := s.client.Do(req.WithContext(ctx))
 	if err != nil {
+		s.diagnostics.Capture("atrust", req, resp, err)
 		stop()
 		cancel()
 		return nil, bounded.TransportError(err)
 	}
-	if err := bounded.BufferResponse(resp); err != nil {
+	err = bounded.BufferResponse(resp)
+	s.diagnostics.Capture("atrust", req, resp, err)
+	if err != nil {
 		stop()
 		cancel()
 		return nil, err

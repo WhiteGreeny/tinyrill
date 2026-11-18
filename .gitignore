@@ -39,3 +39,4 @@ config.toml
 resource-fields.json
 resource-values.json
 resource-values.xml
+auth-debug.json

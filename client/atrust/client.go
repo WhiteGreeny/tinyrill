@@ -17,6 +17,7 @@ import (
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/client/atrust/auth"
 	"github.com/mythologyli/zju-connect/client/authchallenge"
+	"github.com/mythologyli/zju-connect/internal/authdiag"
 	"github.com/mythologyli/zju-connect/internal/ipresource"
 	"github.com/mythologyli/zju-connect/internal/keylog"
 	"github.com/mythologyli/zju-connect/internal/resourcediag"
@@ -40,6 +41,7 @@ type ClientOptions struct {
 	UnderlayDialer      client.UnderlayDialer
 	TLSKeyLogWriter     io.Writer
 	ResourceDiagnostics resourcediag.Observer
+	AuthDiagnostics     authdiag.Observer
 }
 
 type SetupOptions struct {
@@ -101,6 +103,7 @@ type Client struct {
 	tlsKeyLogWriter     io.Writer
 	tcpTunnelZeroRTT    bool
 	resourceDiagnostics resourcediag.Observer
+	authDiagnostics     authdiag.Observer
 }
 
 func NewClient(options ClientOptions) *Client {
@@ -116,6 +119,7 @@ func NewClient(options ClientOptions) *Client {
 		underlayDialer:      options.UnderlayDialer,
 		tlsKeyLogWriter:     options.TLSKeyLogWriter,
 		resourceDiagnostics: options.ResourceDiagnostics,
+		authDiagnostics:     options.AuthDiagnostics,
 		lifecycleCtx:        lifecycleCtx,
 		lifecycleCancel:     lifecycleCancel,
 	}
@@ -381,6 +385,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		authServerHost = fmt.Sprintf("%s:%d", options.ServerAddress, options.ServerPort)
 	}
 	sess := auth.NewSessionContext(setupCtx, authServerHost, c.tlsKeyLogWriter, c.underlayDialer.DialContext)
+	sess.SetDiagnostics(c.authDiagnostics)
 	// Configure the transport before publishing the session to concurrent Close.
 	sess.SetTLSConfig(c.tlsPolicy.Standard())
 	c.maintenanceMu.Lock()

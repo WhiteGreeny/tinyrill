@@ -13,6 +13,7 @@ import (
 
 	"github.com/mythologyli/zju-connect/client"
 	"github.com/mythologyli/zju-connect/client/authchallenge"
+	"github.com/mythologyli/zju-connect/internal/authdiag"
 	"github.com/mythologyli/zju-connect/internal/bounded"
 	"github.com/mythologyli/zju-connect/internal/resourcediag"
 	"github.com/mythologyli/zju-connect/internal/tlspolicy"
@@ -34,6 +35,7 @@ type AuthOptions struct {
 	TOTPSecret       string
 	Certificate      tls.Certificate
 	GraphCodeFile    string
+	Diagnostics      authdiag.Observer
 }
 
 type ResourceOptions struct {
@@ -69,6 +71,7 @@ type Client struct {
 	parseResource       bool
 	useDomainResource   bool
 	resourceDiagnostics resourcediag.Observer
+	authDiagnostics     authdiag.Observer
 	tcpTunnelOnly       bool
 
 	httpClient        *http.Client
@@ -122,6 +125,7 @@ func NewClient(options Options) *Client {
 		parseResource:       options.Resources.Fetch,
 		useDomainResource:   options.Resources.IncludeDomains,
 		resourceDiagnostics: options.Resources.Diagnostics,
+		authDiagnostics:     options.Auth.Diagnostics,
 		httpClient:          &http.Client{Timeout: easyConnectHTTPTimeout},
 		underlayDialer:      options.UnderlayDialer,
 		tlsKeyLogWriter:     options.TLSKeyLogWriter,

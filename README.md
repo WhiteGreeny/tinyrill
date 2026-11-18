@@ -24,6 +24,8 @@ aTrust 的 `auth-info` 查询网关支持的认证域和方式，不执行登录
 
 连接就绪后默认展示最多 20 条授权资源及代理监听地址。添加 `--resources full` 查看完整列表，或 `--resources none` 关闭展示。从 RC4 起，`RESOURCE` 列分别显示 aTrust 的应用名称/描述、分组名称/描述，或 EC 的名称/备注；名称为空时仍显示非空描述或备注，所有说明字段都为空才显示 `-`。各字段独立保留，不参与授权匹配。列表说明授权范围，未探测业务可达性；UDP/ICMP 条目不能通过当前 TCP 代理访问。
 
+遇到密码过期或未知认证步骤时，可添加 `--auth-debug`，将有限认证元数据写入私有 `auth-debug.json`，登录失败也会保留；见 [认证阶段诊断](docs/auth-diagnostics.md)。该开关不实现密码过期判定或改密。
+
 需要协助定位资源字段时，可使用 `--resource-debug` 导出省略字段值的结构样本，见 [资源名称字段诊断](docs/resource-diagnostics.md)。正常展示资源说明无需开启诊断。
 
 需要自行查看完整字段值时，RC4 也包含此前诊断构建的 `--resource-debug-values`，将完整资源分支写入状态目录供人工筛选。aTrust 保存为 `resource-values.json`，EC 保存为 `resource-values.xml`；普通 debug 和结构诊断不会启用原值导出。文件包含客户资源原值，分享前请自行筛选。

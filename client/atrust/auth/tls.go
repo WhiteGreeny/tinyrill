@@ -3,9 +3,14 @@ package auth
 import (
 	"crypto/tls"
 	"net/http"
+
+	"github.com/mythologyli/zju-connect/internal/authdiag"
 )
 
 func (s *Session) Close() { s.client.CloseIdleConnections() }
+
+// SetDiagnostics must be called before publishing or using the session.
+func (s *Session) SetDiagnostics(observer authdiag.Observer) { s.diagnostics = observer }
 
 // SetTLSConfig applies caller-selected trust before authentication starts.
 func (s *Session) SetTLSConfig(config *tls.Config) {

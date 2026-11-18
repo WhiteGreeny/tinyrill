@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mythologyli/zju-connect/client/authchallenge"
@@ -25,6 +26,12 @@ type CLIFrontend struct {
 	ResourceMode          string
 	DebugResources        bool
 	DebugResourceValues   bool
+	DebugAuth             bool
+	Version, Commit       string
+	authMu                sync.Mutex
+	authReport            *authDiagnosticReport
+	authNotice            bool
+	authWriteFailed       bool
 	store                 *credentials.Store
 	password              string
 	loaded, authenticated bool
@@ -33,7 +40,15 @@ type CLIFrontend struct {
 	Prompt                credentials.Prompt
 }
 
-func (f *CLIFrontend) Status(s Status) { _ = json.NewEncoder(f.Output).Encode(s) }
+func (f *CLIFrontend) Status(s Status) {
+	_ = json.NewEncoder(f.Output).Encode(s)
+	f.authMu.Lock()
+	defer f.authMu.Unlock()
+	if f.authReport != nil {
+		f.authReport.State, f.authReport.Reason = s.State, s.Reason
+		f.saveAuthDiagnostic()
+	}
+}
 
 func (f *CLIFrontend) prompt(ctx context.Context, label string) (string, error) {
 	timeout, err := time.ParseDuration(f.Profile.Auth.Timeout)

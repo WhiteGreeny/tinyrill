@@ -39,7 +39,7 @@ func main() {
 const usage = `tinyrill — one customer VPN per process
 
   tinyrill run --config customer.yaml [--resources summary|full|none]
-               [--resource-debug] [--resource-debug-values]
+               [--auth-debug] [--resource-debug] [--resource-debug-values]
   tinyrill auth-info --config customer.yaml
   tinyrill config-check --config customer.yaml
   tinyrill credentials status|set|delete --config customer.yaml
@@ -91,7 +91,9 @@ func runCLI(ctx context.Context, args []string, out, diagnostic io.Writer) int {
 	resourceMode := "summary"
 	debugResources := false
 	debugResourceValues := false
+	debugAuth := false
 	if command == "run" {
+		flags.BoolVar(&debugAuth, "auth-debug", false, "save limited authentication metadata to a private diagnostic file")
 		flags.StringVar(&resourceMode, "resources", "summary", "authorized resource display: summary, full or none")
 		flags.BoolVar(&debugResources, "resource-debug", false, "save resource field names and types, with values omitted")
 		flags.BoolVar(&debugResourceValues, "resource-debug-values", false, "also save actual resource values to a private local file for manual review")
@@ -155,7 +157,7 @@ func runCLI(ctx context.Context, args []string, out, diagnostic io.Writer) int {
 		}
 		return cliError(diagnostic, 2, err)
 	}
-	frontend := &instance.CLIFrontend{Profile: p, Output: out, Diagnostic: diagnostic, ResourceMode: resourceMode, DebugResources: debugResources, DebugResourceValues: debugResourceValues}
+	frontend := &instance.CLIFrontend{Profile: p, Output: out, Diagnostic: diagnostic, ResourceMode: resourceMode, DebugResources: debugResources, DebugResourceValues: debugResourceValues, DebugAuth: debugAuth, Version: Version, Commit: Commit}
 	defer frontend.Close()
 	err = instance.Run(ctx, p, material, frontend)
 	if err == nil || ctx.Err() != nil || errors.Is(err, terminal.ErrCanceled) {

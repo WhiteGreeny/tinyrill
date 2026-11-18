@@ -4,6 +4,8 @@
 
 ## 第一次使用：哪些需要改
 
+认证异常的采集使用命令行 `--auth-debug`，无需新增 YAML 字段或开启 `debug: true`；见 [认证阶段诊断](auth-diagnostics.md)。
+
 1. 原生 EC 从 [customer-a-ec.yaml](../examples/customer-a-ec.yaml) 复制，aTrust 从 [customer-c-atrust.yaml](../examples/customer-c-atrust.yaml) 复制；容器使用 [customer-container.yaml](../examples/customer-container.yaml)，配合 [Podman 说明](docker.md)。
 2. **必须修改**示例中的 `server` 和密码登录的 `auth.username`；给客户选择固定、独立的 `id`。`schema_version` 保留 `1`，按客户端类型确认 `protocol`。
 3. **多客户或端口冲突时调整** `listen.socks5`、`listen.http` 和显式填写的 `session.state_dir`。修改 `id` 不会自动改写示例中的端口与路径。

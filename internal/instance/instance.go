@@ -20,6 +20,7 @@ import (
 	"github.com/mythologyli/zju-connect/client/easyconnect"
 	"github.com/mythologyli/zju-connect/configs"
 	"github.com/mythologyli/zju-connect/dial"
+	"github.com/mythologyli/zju-connect/internal/authdiag"
 	"github.com/mythologyli/zju-connect/internal/credentials"
 	"github.com/mythologyli/zju-connect/internal/dnshosts"
 	"github.com/mythologyli/zju-connect/internal/identity"
@@ -52,6 +53,7 @@ type Frontend interface {
 	Status(Status)
 	Resources(uint64, []client.IPResource, client.DomainResources)
 	ResourceDiagnostics() resourcediag.Observer
+	AuthDiagnostics(uint64) authdiag.Observer
 }
 type Material struct {
 	TOTP        string
@@ -90,6 +92,7 @@ func Run(ctx context.Context, p configs.Profile, material Material, ui Frontend)
 	defer directory.Close()
 	binding := identity.ForProfile(p)
 	var generation uint64 = 1
+	authDiagnostics := ui.AuthDiagnostics(generation)
 	emit := func(status, reason string) {
 		value := Status{SchemaVersion: 1, Customer: p.ID, Generation: generation, State: status, Reason: reason, PID: os.Getpid(), At: time.Now().UTC()}
 		ui.Status(value)
@@ -121,6 +124,7 @@ func Run(ctx context.Context, p configs.Profile, material Material, ui Frontend)
 			case <-timer.C:
 			}
 			generation++
+			authDiagnostics = ui.AuthDiagnostics(generation)
 		}
 		connection, err := reserve(p)
 		if err != nil {
@@ -132,7 +136,7 @@ func Run(ctx context.Context, p configs.Profile, material Material, ui Frontend)
 		handler := ui.Challenge(setupCtx, generation, func(kind string) { emit("waiting_auth", kind) }, func() { emit("authenticating", "") })
 		emit("authenticating", "")
 		save := func(data []byte) error { return directory.SaveSession(binding, data) }
-		err = connection.setup(setupCtx, p, material, policy, saved, everReady, ui.Password, handler, save, ui.ResourceDiagnostics())
+		err = connection.setup(setupCtx, p, material, policy, saved, everReady, ui.Password, handler, save, ui.ResourceDiagnostics(), authDiagnostics)
 		cancel()
 		if err == nil {
 			err = connection.start(ctx, p)
@@ -184,7 +188,7 @@ func retryable(err error) bool {
 	return !errors.As(err, &verification) && !errors.As(err, &unknown) && !errors.As(err, &hostname)
 }
 
-func (o *owner) setup(ctx context.Context, p configs.Profile, material Material, policy *tlspolicy.Policy, saved []byte, resumeOnly bool, password func(context.Context) (string, error), handler authchallenge.Handler, save func([]byte) error, resourceDiagnostics resourcediag.Observer) error {
+func (o *owner) setup(ctx context.Context, p configs.Profile, material Material, policy *tlspolicy.Policy, saved []byte, resumeOnly bool, password func(context.Context) (string, error), handler authchallenge.Handler, save func([]byte) error, resourceDiagnostics resourcediag.Observer, authDiagnostics authdiag.Observer) error {
 	var err error
 	o.underlay, err = underlay.New(underlay.Options{AutoDetect: false})
 	if err != nil {
@@ -212,7 +216,7 @@ func (o *owner) setup(ctx context.Context, p configs.Profile, material Material,
 		if p.Auth.Method == "password" {
 			provider = password
 		}
-		ec := easyconnect.NewClient(easyconnect.Options{Server: server, TLSPolicy: policy, AllowLegacyTLS: p.EasyConnect.AllowLegacyTLS, UnderlayDialer: o.underlay, SessionID: snapshot.SessionID, TestMultiLine: p.EasyConnect.MultiLine && !resumeOnly, Auth: easyconnect.AuthOptions{Username: p.Auth.Username, PasswordProvider: provider, TOTPSecret: material.TOTP, Certificate: material.Certificate}, Resources: easyconnect.ResourceOptions{Fetch: true, IncludeDomains: true, Diagnostics: resourceDiagnostics}, ChallengeHandler: handler})
+		ec := easyconnect.NewClient(easyconnect.Options{Server: server, TLSPolicy: policy, AllowLegacyTLS: p.EasyConnect.AllowLegacyTLS, UnderlayDialer: o.underlay, SessionID: snapshot.SessionID, TestMultiLine: p.EasyConnect.MultiLine && !resumeOnly, Auth: easyconnect.AuthOptions{Username: p.Auth.Username, PasswordProvider: provider, TOTPSecret: material.TOTP, Certificate: material.Certificate, Diagnostics: authDiagnostics}, Resources: easyconnect.ResourceOptions{Fetch: true, IncludeDomains: true, Diagnostics: resourceDiagnostics}, ChallengeHandler: handler})
 		o.client = ec
 		if err := ec.SetupContext(ctx); err != nil {
 			return err
@@ -223,7 +227,7 @@ func (o *owner) setup(ctx context.Context, p configs.Profile, material Material,
 			log.Println("Authenticated, but session state was not saved")
 		}
 	} else {
-		at := atrust.NewClient(atrust.ClientOptions{TLSPolicy: policy, UnderlayDialer: o.underlay, ResourceDiagnostics: resourceDiagnostics, Session: atrust.SessionOptions{Username: p.Auth.Username, MACAddresses: p.ATrust.MACAddresses}})
+		at := atrust.NewClient(atrust.ClientOptions{TLSPolicy: policy, UnderlayDialer: o.underlay, ResourceDiagnostics: resourceDiagnostics, AuthDiagnostics: authDiagnostics, Session: atrust.SessionOptions{Username: p.Auth.Username, MACAddresses: p.ATrust.MACAddresses}})
 		o.client = at
 		var method auth.LoginMethod
 		if !resumeOnly {
